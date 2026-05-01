@@ -1,0 +1,119 @@
+/* ── Responsive & Accessibility ── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .metric-grid,
+  .auth-grid,
+  .key-value-grid,
+  .info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dash-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .dash-col-wide,
+  .dash-col-narrow,
+  .dash-col-half {
+    grid-column: span 6;
+  }
+
+  .dash-col-third {
+    grid-column: span 3;
+  }
+
+  .dash-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-nav-toggle {
+    display: inline-flex;
+  }
+
+  .sidebar-shell {
+    position: fixed;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 180ms ease, width 200ms ease, min-width 200ms ease;
+
+    &.is-open { transform: translateX(0); }
+
+    &.is-collapsed {
+      width: 272px;
+      min-width: 272px;
+
+      .sidebar-label,
+      .sidebar-footer-info,
+      .sidebar-section {
+        opacity: 1;
+        width: auto;
+        height: auto;
+      }
+
+      .nav-link {
+        justify-content: flex-start;
+        padding: 0 14px;
+        margin: 0 12px;
+      }
+    }
+  }
+
+  .console-topbar,
+  .console-body,
+  .auth-frame {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .console-topbar { min-height: 64px; }
+
+  .auth-card,
+  .callback-card { padding: 20px; }
+
+  .metric-grid,
+  .auth-grid,
+  .key-value-grid,
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-col-wide,
+  .dash-col-narrow,
+  .dash-col-half,
+  .dash-col-third {
+    grid-column: span 1;
+  }
+
+  .dash-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header,
+  .auth-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .console-body { padding: 16px; }
+  .console-topbar { padding: 14px; }
+  .metric-value { font-size: 28px; }
+}

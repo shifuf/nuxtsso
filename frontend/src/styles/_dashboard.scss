@@ -1,0 +1,86 @@
+/* ── Dashboard Grid System ── 12-column responsive */
+
+.dash-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.dash-col-full   { grid-column: span 12; }
+.dash-col-wide   { grid-column: span 8; }
+.dash-col-narrow { grid-column: span 4; }
+.dash-col-half   { grid-column: span 6; }
+.dash-col-third  { grid-column: span 4; }
+
+.dash-metrics {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ── Dashboard Panel Zones ── */
+.dash-panel {
+  background: var(--surface-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+  padding: 24px;
+}
+
+.dash-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.dash-panel-title {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.dash-panel-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+/* ── Metric Cards ── */
+.metric-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  animation: fadeInUp 0.4s ease-out;
+
+  &:nth-child(1) { animation-delay: 0.1s; }
+  &:nth-child(2) { animation-delay: 0.2s; }
+  &:nth-child(3) { animation-delay: 0.3s; }
+  &:nth-child(4) { animation-delay: 0.4s; }
+}
+
+.metric-value {
+  color: var(--text-primary);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.metric-caption {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}

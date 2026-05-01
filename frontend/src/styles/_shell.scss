@@ -1,0 +1,59 @@
+/* ── Shell Layouts (Auth / Setup / App) ── */
+
+.app-shell,
+.auth-shell,
+.setup-shell {
+  min-height: 100vh;
+  background: var(--bg-auth);
+  position: relative;
+}
+
+.auth-shell::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(0, 82, 255, 0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(77, 124, 255, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Auth Layout ── */
+.auth-frame {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.auth-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.auth-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+}
+
+.auth-card {
+  padding: 28px;
+  animation: fadeInUp 0.5s ease-out;
+
+  &:nth-child(2) { animation-delay: 0.1s; }
+  &:nth-child(3) { animation-delay: 0.2s; }
+}
+
+.callback-card {
+  max-width: 560px;
+  margin: 60px auto 0;
+  padding: 32px;
+}

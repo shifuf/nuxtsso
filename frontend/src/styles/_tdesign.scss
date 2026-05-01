@@ -1,0 +1,49 @@
+/* ── TDesign Component Overrides ── */
+
+.t-button {
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease !important;
+
+  &:hover { transform: translateY(-1px); }
+  &:active {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+
+  &[theme="primary"] {
+    background: linear-gradient(135deg, var(--accent), var(--accent-secondary)) !important;
+    box-shadow: var(--shadow-accent) !important;
+
+    &:hover {
+      box-shadow: 0 20px 40px -20px rgba(0, 82, 255, 0.55) !important;
+    }
+  }
+}
+
+.t-input,
+.t-select-input,
+.t-textarea {
+  border-radius: 12px !important;
+  transition: border-color 200ms ease, box-shadow 200ms ease !important;
+}
+
+.t-input__wrap,
+.t-textarea__inner,
+.t-select-input.t-is-focused,
+.t-input.t-is-focused {
+  border-radius: 12px !important;
+}
+
+.t-input:hover:not(.t-is-focused),
+.t-select-input:hover:not(.t-is-focused),
+.t-textarea:hover:not(.t-is-focused) {
+  border-color: var(--border-strong) !important;
+}
+
+.t-input.t-is-focused,
+.t-select-input.t-is-focused,
+.t-textarea.t-is-focused {
+  box-shadow: 0 0 0 3px rgba(0, 82, 255, 0.1) !important;
+  border-color: var(--accent) !important;
+}

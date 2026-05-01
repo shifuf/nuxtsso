@@ -1,0 +1,49 @@
+/* ── Data Table System ── */
+
+.table-shell {
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+
+  thead { background: var(--surface-muted); }
+
+  th {
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  td {
+    padding: 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+    border-bottom: 1px solid var(--border-primary);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  tbody tr {
+    cursor: pointer;
+    transition: background-color 150ms ease, transform 150ms ease;
+
+    &:hover td { background: rgba(0, 82, 255, 0.028); }
+    &:hover { transform: translateX(4px); }
+  }
+}

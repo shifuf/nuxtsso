@@ -1,0 +1,30 @@
+/* ── Console Layout ── */
+
+.console-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.console-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  background: color-mix(in srgb, var(--bg-page) 84%, transparent);
+  border-bottom: 1px solid var(--border-primary);
+  backdrop-filter: blur(18px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.console-body {
+  padding: 28px;
+}
+
+.mobile-nav-toggle {
+  display: none;
+}
