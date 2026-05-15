@@ -1,4 +1,11 @@
 node_modules
+dist
+backups
+uploads
+prisma/*.db
+prisma/*.db-*
+prisma/*.sqlite
+prisma/*.sqlite-*
 # Keep environment variables out of version control
 .env
 

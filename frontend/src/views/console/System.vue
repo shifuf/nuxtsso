@@ -2,9 +2,10 @@
 import { onMounted, reactive, ref } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { adminApi } from '../../api/admin'
-import type { SocialProviderConfig, EmailConfig, BackupConfig, BackupInfo } from '../../types/api'
+import type { SocialProviderConfig, EmailConfig, BackupInfo } from '../../types/api'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
+import { formatDateTime } from '../../utils/console'
 
 const activeTab = ref('auth')
 const loading = ref(false)
@@ -109,25 +110,35 @@ function openProviderEdit(provider: SocialProviderConfig) {
   showProviderDialog.value = true
 }
 
+function optionalText(value: string) {
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function closeProviderDialog() {
+  showProviderDialog.value = false
+}
+
 async function saveProvider() {
   if (!providerForm.name) return MessagePlugin.warning('请填写提供方名称')
   saving.value = true
   try {
+    const isAggregated = providerForm.type === 'aggregated'
     const payload = {
       type: providerForm.type || undefined,
       enabled: providerForm.enabled,
-      clientId: providerForm.clientId,
-      clientSecret: providerForm.clientSecret,
-      authUrl: providerForm.authUrl,
-      tokenUrl: providerForm.tokenUrl,
-      userInfoUrl: providerForm.userInfoUrl,
-      apiUrl: providerForm.apiUrl || undefined,
-      redirectUri: providerForm.redirectUri || undefined,
+      clientId: providerForm.clientId.trim(),
+      clientSecret: providerForm.clientSecret.trim(),
+      authUrl: isAggregated ? undefined : optionalText(providerForm.authUrl),
+      tokenUrl: isAggregated ? undefined : optionalText(providerForm.tokenUrl),
+      userInfoUrl: isAggregated ? undefined : optionalText(providerForm.userInfoUrl),
+      apiUrl: isAggregated ? optionalText(providerForm.apiUrl) : undefined,
+      redirectUri: optionalText(providerForm.redirectUri),
       scopes: providerForm.scopes ? providerForm.scopes.split('\n').map(s => s.trim()).filter(Boolean) : [],
     }
     await adminApi.updateSocialProvider(providerForm.name, payload)
     MessagePlugin.success('提供方配置已更新')
-    showProviderDialog.value = false
+    closeProviderDialog()
     await loadAll()
   } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '保存失败') }
   finally { saving.value = false }
@@ -249,9 +260,7 @@ function formatBytes(bytes: number) {
 <template>
   <div class="space-y-6">
     <PageHeader
-      eyebrow="配置中心"
       title="系统设置"
-      description="集中维护认证策略、第三方登录、邮件、备份与 OIDC 服务信息，危险操作需要明确风险提示。"
     >
       <template #actions>
         <t-button variant="outline" @click="testEmail">发送测试邮件</t-button>
@@ -444,7 +453,7 @@ function formatBytes(bytes: number) {
                     <tr v-for="item in backups" :key="item.filename">
                       <td class="font-mono text-xs">{{ item.filename }}</td>
                       <td>{{ formatBytes(item.size) }}</td>
-                      <td class="font-mono text-xs">{{ item.createdAt }}</td>
+                      <td class="font-mono text-xs">{{ formatDateTime(item.createdAt) }}</td>
                       <td>{{ item.trigger === 'manual' ? '手动' : '自动' }}</td>
                       <td>{{ item.compressed ? 'gzip' : '原始' }}</td>
                       <td>
@@ -474,6 +483,8 @@ function formatBytes(bytes: number) {
       :confirm-btn="{ content: '保存', theme: 'primary', loading: saving }"
       :cancel-btn="{ content: '取消', variant: 'outline' }"
       @confirm="saveProvider"
+      @cancel="closeProviderDialog"
+      @close="closeProviderDialog"
     >
       <div class="space-y-4 pt-2">
         <t-input v-model="providerForm.name" size="large" placeholder="提供方名称" disabled />

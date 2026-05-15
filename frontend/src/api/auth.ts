@@ -1,6 +1,8 @@
 import http from './http';
 import type {
   AccountSession,
+  ApplicationCreateResponse,
+  ApplicationItem,
   AuthResponse,
   SetupPayload,
   SetupStatus,
@@ -45,7 +47,14 @@ export interface ResetPasswordPayload {
 
 export interface UpdateProfilePayload {
   username?: string;
-  avatar?: string | null;
+}
+
+export interface AccountApplicationPayload {
+  name: string;
+  description?: string;
+  redirectUris: string[];
+  scopes: string[];
+  allowRegistration: boolean;
 }
 
 export const authApi = {
@@ -97,6 +106,22 @@ export const authApi = {
     const { data } = await http.put('/api/auth/account/profile', payload);
     return data as UserProfile;
   },
+  async uploadAvatar(file: File) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const { data } = await http.post('/api/auth/account/avatar', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data as UserProfile;
+  },
+  async listAccountApplications() {
+    const { data } = await http.get('/api/auth/account/applications');
+    return data as ApplicationItem[];
+  },
+  async createAccountApplication(payload: AccountApplicationPayload) {
+    const { data } = await http.post('/api/auth/account/applications', payload);
+    return data as ApplicationCreateResponse;
+  },
   async bindPhone(phone: string) {
     const { data } = await http.put('/api/auth/account/phone', { phone });
     return data as UserProfile;
@@ -111,6 +136,26 @@ export const authApi = {
     });
     return data as Array<{ name: string; enabled: boolean }>;
   },
+  async createSocialLoginQr(provider: string, clientId?: string, redirectUri?: string) {
+    const { data } = await http.post(`/api/auth/social/${provider}/login-qr`, {
+      clientId,
+      redirectUri,
+    });
+    return data as { authorizeUrl: string; qrCodeUrl?: string | null; state: string };
+  },
+  async getSocialLoginStatus(state: string) {
+    const { data } = await http.get('/api/auth/social/login-status', {
+      params: { state },
+    });
+    return data as {
+      status: 'pending' | 'scanned' | 'completed' | 'failed' | 'expired';
+      provider?: string;
+      auth?: AuthResponse | null;
+      error?: string | null;
+      completedAt?: string | null;
+      scannedAt?: string | null;
+    };
+  },
   async getPublicConfig() {
     const { data } = await http.get('/api/auth/config');
     return data as { requireEmailVerification: boolean; publicApiEnabled: boolean };
@@ -123,7 +168,20 @@ export const authApi = {
     const { data } = await http.post(`/api/auth/social/${provider}/bind`, {
       returnTo,
     });
-    return data as { authorizeUrl: string; state: string };
+    return data as { authorizeUrl: string; qrCodeUrl?: string | null; state: string };
+  },
+  async getSocialBindStatus(state: string) {
+    const { data } = await http.get('/api/auth/social/bind-status', {
+      params: { state },
+    });
+    return data as {
+      status: 'pending' | 'scanned' | 'completed' | 'failed' | 'expired';
+      provider?: string;
+      bindingId?: string | null;
+      error?: string | null;
+      completedAt?: string | null;
+      scannedAt?: string | null;
+    };
   },
   async unbindSocial(provider: string) {
     const { data } = await http.delete(`/api/auth/social/${provider}/bind`);

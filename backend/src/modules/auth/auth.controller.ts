@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -8,12 +9,19 @@ import {
   Put,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
+import { randomBytes } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 import { CurrentUser } from '../../common/security/current-user.decorator';
 import { JwtAuthGuard } from '../../common/security/jwt-auth.guard';
 import type { RequestUser } from '../../common/security/request-user.interface';
+import { ApplicationService, CreateApplicationDto } from '../application/application.service';
 import { AuditService } from '../audit/audit.service';
 import {
   BindPhoneDto,
@@ -35,6 +43,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly userService: UserService,
+    private readonly applicationService: ApplicationService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -170,6 +179,96 @@ export class AuthController {
     });
 
     return updatedUser;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('account/avatar')
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      limits: { fileSize: 2 * 1024 * 1024 },
+      fileFilter: (
+        _request: Request,
+        file: { mimetype: string },
+        callback: (error: Error | null, acceptFile: boolean) => void,
+      ) => {
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype)) {
+          callback(new BadRequestException('仅支持 JPG、PNG、WebP 或 GIF 头像'), false);
+          return;
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
+  async uploadAvatar(
+    @CurrentUser() user: RequestUser,
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      buffer: Buffer;
+      size: number;
+    },
+    @Req() request: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException('请上传头像文件');
+    }
+
+    const extension = extname(file.originalname).toLowerCase() || '.png';
+    const directory = join(process.cwd(), 'uploads', 'avatars');
+    const filename = `${user.id}-${Date.now()}-${randomBytes(6).toString('hex')}${extension}`;
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, filename), file.buffer);
+
+    const avatar = `/uploads/avatars/${filename}`;
+    const updatedUser = await this.userService.updateAvatar(user.id, avatar);
+
+    await this.auditService.create({
+      action: 'auth.avatar.uploaded',
+      actorId: user.id,
+      actorEmail: user.email,
+      ip: request.ip,
+      userAgent: this.resolveUserAgent(request),
+      metadata: { avatar, size: file.size, mimetype: file.mimetype },
+    });
+
+    return updatedUser;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('account/applications')
+  listOwnApplications(@CurrentUser() user: RequestUser) {
+    return this.applicationService.listUserApplications(user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('account/applications')
+  async createOwnApplication(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: CreateApplicationDto,
+    @Req() request: Request,
+  ) {
+    const application = await this.applicationService.createApplicationForOwner(
+      dto,
+      user.id,
+    );
+
+    await this.auditService.create({
+      action: 'auth.application.created',
+      actorId: user.id,
+      actorEmail: user.email,
+      applicationId: application.clientId,
+      ip: request.ip,
+      userAgent: this.resolveUserAgent(request),
+      metadata: {
+        name: application.name,
+        redirectUris: application.redirectUris,
+        scopes: application.scopes,
+      },
+    });
+
+    return application;
   }
 
   @UseGuards(JwtAuthGuard)

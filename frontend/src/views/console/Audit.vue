@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { adminApi } from '../../api/admin'
 import type { AuditLogItem, AuditSummary, AuditCategory } from '../../types/api'
-import { formatAuditAction, formatAuditCategory, formatCount } from '../../utils/console'
+import { formatAuditAction, formatAuditCategory, formatCount, formatDateTime } from '../../utils/console'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -41,6 +41,14 @@ const daysOptions = [
   { label: '30 天', value: 30 },
 ]
 
+const clearOptions = [
+  { label: '清理 30 天前', value: 30 },
+  { label: '清理 90 天前', value: 90 },
+  { label: '清理全部', value: -1 },
+]
+
+const clearOlderThanDays = ref(30)
+
 onMounted(async () => {
   await Promise.all([loadLogs(), loadSummary()])
 })
@@ -68,14 +76,23 @@ async function search() {
   await Promise.all([loadLogs(), loadSummary()])
 }
 
-function categoryTone(category: AuditCategory): 'info' | 'warning' | 'success' | 'danger' {
-  const map: Record<AuditCategory, 'info' | 'warning' | 'success' | 'danger'> = {
-    auth: 'info',
-    oauth2: 'warning',
-    admin: 'success',
-    system: 'neutral' as 'info',
-  }
-  return map[category] || 'info'
+async function clearLogs() {
+  const label = clearOlderThanDays.value < 0 ? '全部审计日志' : `${clearOlderThanDays.value} 天前的审计日志`
+  const dialog = DialogPlugin.confirm({
+    header: '清理审计日志',
+    body: `确定要清理${label}吗？该操作不可撤销。`,
+    confirmBtn: '确认清理',
+    cancelBtn: '取消',
+    theme: 'danger',
+    onConfirm: async () => {
+      try {
+        const result = await adminApi.clearAuditLogs(clearOlderThanDays.value < 0 ? undefined : clearOlderThanDays.value)
+        MessagePlugin.success(`已清理 ${formatCount(result.deletedCount)} 条日志`)
+        await search()
+      } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '清理失败') }
+      dialog.hide()
+    },
+  })
 }
 
 function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
@@ -92,9 +109,7 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
 <template>
   <div class="space-y-6">
     <PageHeader
-      eyebrow="可审计"
       title="审计日志"
-      description="保留机器可读动作 code，同时提供面向业务的中文解释。metadata 使用等宽格式呈现并支持横向滚动。"
     >
       <template #actions>
         <t-button variant="outline" @click="search">刷新</t-button>
@@ -104,7 +119,7 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
 
     <div class="metric-grid">
       <MetricCard
-        label="近 {{ filters.days }} 天总日志"
+        :label="`近 ${filters.days} 天总日志`"
         :value="summary ? formatCount(summary.total) : '—'"
         caption="认证、授权、后台与系统事件"
         trend="查询中"
@@ -154,72 +169,68 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
         />
       </div>
 
-      <div class="mt-5 grid gap-6 xl:grid-cols-[1.55fr,0.8fr]">
-        <div class="space-y-4">
-          <div v-if="logs.length === 0 && !loading" class="panel-muted p-5 text-center">
-            <p class="text-sm text-[var(--text-muted)]">暂无匹配的审计日志</p>
+      <div class="mt-4 flex flex-wrap items-center justify-end gap-3">
+        <t-select
+          v-model="clearOlderThanDays"
+          class="w-44"
+          :options="clearOptions"
+        />
+        <t-button theme="danger" variant="outline" @click="clearLogs">清理日志</t-button>
+      </div>
+
+      <div class="mt-5">
+        <div class="table-shell">
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>动作</th>
+                  <th>分类</th>
+                  <th>操作者</th>
+                  <th>目标</th>
+                  <th>IP</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="log in logs" :key="log.id">
+                  <td>
+                    <span class="font-mono text-sm text-[var(--text-primary)]">{{ formatAuditAction(log.action) }}</span>
+                  </td>
+                  <td>
+                    <StatusTag :tone="statusTagForCategory(log.category)" :label="formatAuditCategory(log.category)" />
+                  </td>
+                  <td>
+                    <span class="text-sm text-[var(--text-secondary)]">{{ log.actorEmail || log.actorName || log.actorId || 'system' }}</span>
+                  </td>
+                  <td>
+                    <span class="text-sm text-[var(--text-muted)]">{{ log.targetId || log.applicationId || '—' }}</span>
+                  </td>
+                  <td>
+                    <span class="font-mono text-xs text-[var(--text-muted)]">{{ log.ip || '—' }}</span>
+                  </td>
+                  <td>
+                    <span class="text-xs text-[var(--text-muted)]">{{ formatDateTime(log.createdAt) }}</span>
+                  </td>
+                </tr>
+                <tr v-if="logs.length === 0 && !loading">
+                  <td colspan="6" class="text-center py-8 text-[var(--text-muted)]">暂无匹配的审计日志</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-
-          <article
-            v-for="log in logs"
-            :key="log.id"
-            class="panel-muted p-5"
-          >
-            <div class="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <StatusTag :tone="statusTagForCategory(log.category)" :label="formatAuditCategory(log.category)" />
-                  <span class="font-mono text-sm text-[var(--text-primary)]">{{ formatAuditAction(log.action) }}</span>
-                </div>
-                <p class="mt-3 text-sm text-[var(--text-secondary)]">
-                  {{ log.actorEmail || log.actorName || log.actorId || 'system' }}
-                  <span v-if="log.applicationId"> · {{ log.applicationId }}</span>
-                  <span v-if="log.targetId"> · {{ log.targetId }}</span>
-                </p>
-              </div>
-              <div class="text-right">
-                <p class="font-mono text-xs text-[var(--text-muted)]">{{ log.createdAt }}</p>
-                <p v-if="log.ip" class="mt-2 text-xs text-[var(--text-muted)]">{{ log.ip }}</p>
-              </div>
-            </div>
-
-            <pre v-if="log.metadata" class="metadata-pre mt-4">{{ JSON.stringify(log.metadata, null, 2) }}</pre>
-          </article>
         </div>
 
-        <div class="space-y-5">
-          <div class="panel-muted p-5">
-            <p class="eyebrow">侧栏摘要</p>
-            <div class="mt-4 space-y-3">
-              <div
-                v-for="item in summary?.topActions?.slice(0, 3) || []"
-                :key="item.action"
-                class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4"
-              >
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-sm text-[var(--text-muted)]">高频操作</p>
-                  <StatusTag :tone="statusTagForCategory(item.category)" :label="formatCount(item.count)" />
-                </div>
-                <p class="mt-3 break-all font-mono text-sm text-[var(--text-primary)]">{{ formatAuditAction(item.action) }}</p>
-              </div>
-
-              <div v-if="!summary?.topActions?.length" class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4">
-                <p class="text-sm text-[var(--text-muted)]">暂无摘要数据</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel-muted p-5">
-            <p class="eyebrow">设计约束</p>
-            <div class="timeline-list mt-4">
-              <div class="timeline-item">
-                <p class="text-sm font-semibold text-[var(--text-primary)]">颜色只用于分类和风险提示</p>
-                <p class="mt-1 text-sm leading-6 text-[var(--text-muted)]">避免将颜色当成装饰，提高审计可读性。</p>
-              </div>
-              <div class="timeline-item">
-                <p class="text-sm font-semibold text-[var(--text-primary)]">metadata 不撑破布局</p>
-                <p class="mt-1 text-sm leading-6 text-[var(--text-muted)]">长 JSON 统一放进等宽 `pre` 容器并允许横向滚动。</p>
-              </div>
+        <!-- Summary -->
+        <div class="mt-6 grid gap-4 lg:grid-cols-3">
+          <div
+            v-for="item in summary?.topActions?.slice(0, 3) || []"
+            :key="item.action"
+            class="panel-muted p-4"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <span class="font-mono text-sm text-[var(--text-primary)]">{{ formatAuditAction(item.action) }}</span>
+              <StatusTag :tone="statusTagForCategory(item.category)" :label="formatCount(item.count)" />
             </div>
           </div>
         </div>

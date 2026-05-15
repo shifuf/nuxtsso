@@ -107,9 +107,32 @@ interface PendingBindState {
   provider: string;
   returnTo: string;
   expiresAt: string;
+  status?: 'pending' | 'scanned' | 'completed' | 'failed';
+  bindingId?: string;
+  error?: string;
+  completedAt?: string;
+  scannedAt?: string;
+}
+
+interface PendingLoginState {
+  provider: string;
+  clientId?: string | null;
+  redirectUri?: string | null;
+  expiresAt: string;
+  status?: 'pending' | 'scanned' | 'completed' | 'failed';
+  auth?: Record<string, unknown>;
+  error?: string;
+  completedAt?: string;
+  scannedAt?: string;
+}
+
+interface AuthorizationPayload {
+  authorizeUrl: string;
+  qrCodeUrl?: string | null;
 }
 
 const SOCIAL_BIND_STATE_PREFIX = 'social-bind-state:';
+const SOCIAL_LOGIN_STATE_PREFIX = 'social-login-state:';
 
 @Injectable()
 export class SocialAuthService {
@@ -126,12 +149,20 @@ export class SocialAuthService {
     return issuer;
   }
 
+  private getOAuthCallbackBaseUrl(): string {
+    return this.configService.get<string>('OAUTH_CALLBACK_BASE_URL') ?? this.getBackendBaseUrl();
+  }
+
   private getFrontendUrl(): string {
     return this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
   }
 
   private buildBindStateKey(state: string) {
     return `${SOCIAL_BIND_STATE_PREFIX}${state}`;
+  }
+
+  private buildLoginStateKey(state: string) {
+    return `${SOCIAL_LOGIN_STATE_PREFIX}${state}`;
   }
 
   private normalizeReturnTo(returnTo?: string) {
@@ -192,6 +223,30 @@ export class SocialAuthService {
     return state;
   }
 
+  private async createPendingLoginState(
+    provider: string,
+    clientId?: string | null,
+    redirectUri?: string | null,
+  ) {
+    const state = randomBytes(24).toString('base64url');
+    const payload: PendingLoginState = {
+      provider,
+      clientId: clientId ?? null,
+      redirectUri: redirectUri ?? null,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      status: 'pending',
+    };
+
+    await this.prismaService.systemSetting.create({
+      data: {
+        key: this.buildLoginStateKey(state),
+        value: JSON.stringify(payload),
+      },
+    });
+
+    return state;
+  }
+
   private async consumePendingBindState(state?: string) {
     if (!state) {
       return null;
@@ -206,20 +261,308 @@ export class SocialAuthService {
       return null;
     }
 
-    await this.prismaService.systemSetting.delete({
-      where: { key },
-    });
-
     try {
       const payload = JSON.parse(setting.value) as PendingBindState;
 
       if (new Date(payload.expiresAt).getTime() <= Date.now()) {
+        await this.prismaService.systemSetting.delete({
+          where: { key },
+        });
+        return null;
+      }
+
+      if (payload.status === 'completed' || payload.status === 'failed') {
         return null;
       }
 
       return payload;
     } catch {
       return null;
+    }
+  }
+
+  private async markPendingBindStateCompleted(
+    state: string | undefined,
+    bindingId: string,
+  ) {
+    if (!state) {
+      return;
+    }
+
+    const key = this.buildBindStateKey(state);
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key },
+    });
+
+    if (!setting) {
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingBindState;
+      await this.prismaService.systemSetting.update({
+        where: { key },
+        data: {
+          value: JSON.stringify({
+            ...payload,
+            status: 'completed',
+            bindingId,
+            completedAt: new Date().toISOString(),
+          } satisfies PendingBindState),
+        },
+      });
+    } catch {
+      await this.prismaService.systemSetting.delete({ where: { key } });
+    }
+  }
+
+  private async updatePendingBindState(
+    state: string | undefined,
+    patch: Partial<PendingBindState>,
+  ) {
+    if (!state) {
+      return;
+    }
+
+    const key = this.buildBindStateKey(state);
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key },
+    });
+
+    if (!setting) {
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingBindState;
+      await this.prismaService.systemSetting.update({
+        where: { key },
+        data: {
+          value: JSON.stringify({
+            ...payload,
+            ...patch,
+          }),
+        },
+      });
+    } catch {
+      await this.prismaService.systemSetting.delete({ where: { key } });
+    }
+  }
+
+  async getBindAuthorizationStatus(userId: string, state: string) {
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key: this.buildBindStateKey(state) },
+    });
+
+    if (!setting) {
+      return { status: 'expired' as const };
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingBindState;
+
+      if (payload.userId !== userId) {
+        throw new BadRequestException('绑定状态不属于当前用户');
+      }
+
+      if (new Date(payload.expiresAt).getTime() <= Date.now()) {
+        await this.prismaService.systemSetting.delete({
+          where: { key: this.buildBindStateKey(state) },
+        });
+        return { status: 'expired' as const };
+      }
+
+      return {
+        status: payload.status === 'completed'
+          ? 'completed' as const
+          : payload.status === 'failed'
+            ? 'failed' as const
+            : payload.status === 'scanned'
+              ? 'scanned' as const
+              : 'pending' as const,
+        provider: payload.provider,
+        bindingId: payload.bindingId ?? null,
+        error: payload.error ?? null,
+        completedAt: payload.completedAt ?? null,
+        scannedAt: payload.scannedAt ?? null,
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      return { status: 'expired' as const };
+    }
+  }
+
+  private async getPendingLoginState(state?: string) {
+    if (!state) {
+      return null;
+    }
+
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key: this.buildLoginStateKey(state) },
+    });
+
+    if (!setting) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingLoginState;
+
+      if (new Date(payload.expiresAt).getTime() <= Date.now()) {
+        await this.prismaService.systemSetting.delete({
+          where: { key: this.buildLoginStateKey(state) },
+        });
+        return null;
+      }
+
+      if (payload.status !== 'pending' && payload.status !== 'scanned') {
+        return null;
+      }
+
+      return payload;
+    } catch {
+      return null;
+    }
+  }
+
+  private async updatePendingLoginState(
+    state: string | undefined,
+    patch: Partial<PendingLoginState>,
+  ) {
+    if (!state) {
+      return;
+    }
+
+    const key = this.buildLoginStateKey(state);
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key },
+    });
+
+    if (!setting) {
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingLoginState;
+      await this.prismaService.systemSetting.update({
+        where: { key },
+        data: {
+          value: JSON.stringify({
+            ...payload,
+            ...patch,
+          }),
+        },
+      });
+    } catch {
+      await this.prismaService.systemSetting.delete({ where: { key } });
+    }
+  }
+
+  async failAuthorizationState(
+    state: string | undefined,
+    provider: string | undefined,
+    message: string,
+  ) {
+    if (!state) {
+      return null;
+    }
+
+    const loginSetting = await this.prismaService.systemSetting.findUnique({
+      where: { key: this.buildLoginStateKey(state) },
+    });
+    if (loginSetting) {
+      try {
+        const payload = JSON.parse(loginSetting.value) as PendingLoginState;
+        if (!provider || payload.provider === provider) {
+          await this.updatePendingLoginState(state, {
+            status: 'failed',
+            error: message,
+            completedAt: new Date().toISOString(),
+          });
+          return 'login' as const;
+        }
+      } catch {
+        await this.prismaService.systemSetting.delete({
+          where: { key: this.buildLoginStateKey(state) },
+        });
+      }
+    }
+
+    const bindSetting = await this.prismaService.systemSetting.findUnique({
+      where: { key: this.buildBindStateKey(state) },
+    });
+    if (bindSetting) {
+      try {
+        const payload = JSON.parse(bindSetting.value) as PendingBindState;
+        if (!provider || payload.provider === provider) {
+          await this.updatePendingBindState(state, {
+            status: 'failed',
+            error: message,
+            completedAt: new Date().toISOString(),
+          });
+          return 'bind' as const;
+        }
+      } catch {
+        await this.prismaService.systemSetting.delete({
+          where: { key: this.buildBindStateKey(state) },
+        });
+      }
+    }
+
+    return null;
+  }
+
+  async createLoginAuthorization(
+    provider: string,
+    clientId?: string | null,
+    redirectUri?: string | null,
+  ) {
+    const csrfState = await this.createPendingLoginState(provider, clientId, redirectUri);
+    const authorization = await this.buildAuthorizePayload(
+      provider,
+      '/api/auth/callback',
+      `${csrfState}|${provider}`,
+    );
+
+    return {
+      authorizeUrl: authorization.authorizeUrl,
+      qrCodeUrl: authorization.qrCodeUrl ?? null,
+      state: csrfState,
+    };
+  }
+
+  async getLoginAuthorizationStatus(state: string) {
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key: this.buildLoginStateKey(state) },
+    });
+
+    if (!setting) {
+      return { status: 'expired' as const };
+    }
+
+    try {
+      const payload = JSON.parse(setting.value) as PendingLoginState;
+
+      if (new Date(payload.expiresAt).getTime() <= Date.now()) {
+        await this.prismaService.systemSetting.delete({
+          where: { key: this.buildLoginStateKey(state) },
+        });
+        return { status: 'expired' as const };
+      }
+
+      return {
+        status: payload.status ?? 'pending',
+        provider: payload.provider,
+        auth: payload.auth ?? null,
+        error: payload.error ?? null,
+        completedAt: payload.completedAt ?? null,
+        scannedAt: payload.scannedAt ?? null,
+      };
+    } catch {
+      return { status: 'expired' as const };
     }
   }
 
@@ -246,15 +589,15 @@ export class SocialAuthService {
     returnTo?: string,
   ) {
     const csrfState = await this.createPendingBindState(userId, provider, returnTo);
-    const encodedState = `${csrfState}|${provider}`;
-    const authorizeUrl = await this.buildAuthorizeRedirect(
+    const authorization = await this.buildAuthorizePayload(
       provider,
       '/api/auth/callback',
-      encodedState,
+      `${csrfState}|${provider}`,
     );
 
     return {
-      authorizeUrl,
+      authorizeUrl: authorization.authorizeUrl,
+      qrCodeUrl: authorization.qrCodeUrl ?? null,
       state: csrfState,
     };
   }
@@ -314,7 +657,7 @@ export class SocialAuthService {
   ) {
     const apiUrl = (providerRecord.apiUrl || 'https://u.cccyun.cc/').replace(/\/+$/, '');
     const subType = this.getAggregatedSubType(providerName);
-    const redirectUri = `${this.getBackendBaseUrl()}${callbackPath}`;
+    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
 
     const params = new URLSearchParams({
       act: 'login',
@@ -330,11 +673,79 @@ export class SocialAuthService {
 
     if (data.code !== 0 || !data.url) {
       throw new BadRequestException(
-        `聚合平台返回错误：${data.msg}（请在聚合平台后台确认该登录方式已开启、AppID/AppKey 正确）`,
+        `聚合平台返回错误：${data.msg}（当前回调地址：${redirectUri}，请在聚合平台后台授权该回调域名并确认登录方式已开启、AppID/AppKey 正确）`,
       );
     }
 
     return data.url;
+  }
+
+  private async buildAggregatedAuthorizePayload(
+    providerRecord: { clientId: string; clientSecret: string; apiUrl: string | null },
+    providerName: string,
+    callbackPath: string,
+    state?: string,
+  ): Promise<AuthorizationPayload> {
+    const apiUrl = (providerRecord.apiUrl || 'https://u.cccyun.cc/').replace(/\/+$/, '');
+    const subType = this.getAggregatedSubType(providerName);
+    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
+
+    const params = new URLSearchParams({
+      act: 'login',
+      appid: providerRecord.clientId,
+      appkey: providerRecord.clientSecret,
+      type: subType,
+      redirect_uri: redirectUri,
+    });
+    if (state) params.set('state', state);
+
+    const resp = await fetch(`${apiUrl}/connect.php?${params.toString()}`);
+    const data = await resp.json() as { code: number; msg: string; url: string; qrcode?: string };
+
+    if (data.code !== 0 || !data.url) {
+      throw new BadRequestException(
+        `聚合平台返回错误：${data.msg}（当前回调地址：${redirectUri}，请在聚合平台后台授权该回调域名并确认登录方式已开启、AppID/AppKey 正确）`,
+      );
+    }
+
+    return {
+      authorizeUrl: data.url,
+      qrCodeUrl: this.normalizeProviderQrCode(data.qrcode, apiUrl),
+    };
+  }
+
+  private normalizeProviderQrCode(qrcode: string | undefined, apiUrl: string) {
+    const value = qrcode?.trim();
+    if (!value) {
+      return null;
+    }
+
+    if (value.startsWith('data:image/')) {
+      return value;
+    }
+
+    if (/^[A-Za-z0-9+/=]+$/.test(value) && value.length > 100) {
+      return `data:image/png;base64,${value}`;
+    }
+
+    const isImagePath = /\.(png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(value);
+    if (!isImagePath) {
+      return null;
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      return value;
+    }
+
+    if (value.startsWith('//')) {
+      return `https:${value}`;
+    }
+
+    if (value.startsWith('/')) {
+      return `${apiUrl}${value}`;
+    }
+
+    return `${apiUrl}/${value.replace(/^\/+/, '')}`;
   }
 
   private async handleAggregatedCallback(
@@ -379,6 +790,11 @@ export class SocialAuthService {
   }
 
   async buildAuthorizeRedirect(provider: string, callbackPath: string, state?: string) {
+    const payload = await this.buildAuthorizePayload(provider, callbackPath, state);
+    return payload.authorizeUrl;
+  }
+
+  private async buildAuthorizePayload(provider: string, callbackPath: string, state?: string): Promise<AuthorizationPayload> {
     const providerRecord = await this.prismaService.socialProvider.findUnique({
       where: { name: provider },
     });
@@ -396,11 +812,11 @@ export class SocialAuthService {
     }
 
     if (providerRecord.type === 'aggregated') {
-      return this.buildAggregatedAuthorizeRedirect(providerRecord, provider, callbackPath, state);
+      return this.buildAggregatedAuthorizePayload(providerRecord, provider, callbackPath, state);
     }
 
     const endpoints = this.getProviderEndpoints(provider);
-    const redirectUri = `${this.getBackendBaseUrl()}${callbackPath}`;
+    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
     const scopes = providerRecord.scopes
       ? JSON.parse(providerRecord.scopes) as string[]
       : [endpoints.scope];
@@ -418,7 +834,7 @@ export class SocialAuthService {
 
     // WeChat requires #wechat_redirect
     if (provider === 'wechat') {
-      return `${endpoints.authorizeUrl}?${params.toString()}#wechat_redirect`;
+      return { authorizeUrl: `${endpoints.authorizeUrl}?${params.toString()}#wechat_redirect` };
     }
 
     // QQ uses 'all' as display
@@ -426,7 +842,7 @@ export class SocialAuthService {
       params.set('display', 'page');
     }
 
-    return `${endpoints.authorizeUrl}?${params.toString()}`;
+    return { authorizeUrl: `${endpoints.authorizeUrl}?${params.toString()}` };
   }
 
   async handleCallback(provider: string, code: string, state?: string) {
@@ -452,18 +868,51 @@ export class SocialAuthService {
           throw new BadRequestException('第三方绑定状态无效');
         }
         const binding = await this.bindAccountToUser(pendingBindState.userId, socialProfile, '');
+        await this.markPendingBindStateCompleted(state, binding.id);
         return { mode: 'bind' as const, provider, returnTo: pendingBindState.returnTo, binding };
       }
 
-      const user = await this.findOrCreateUser(socialProfile, '');
+      const pendingLoginState = await this.getPendingLoginState(state);
+      let user: Awaited<ReturnType<typeof this.findOrCreateUser>>;
+      try {
+        user = await this.findOrCreateUser(socialProfile, '');
+      } catch (error) {
+        if (pendingLoginState) {
+          const message =
+            error instanceof SocialBindRequiredError
+              ? '该第三方账号尚未绑定用户，请先在账号中心或联系管理员完成绑定'
+              : error instanceof Error
+                ? error.message
+                : '第三方登录失败';
+          await this.updatePendingLoginState(state, {
+            status: 'failed',
+            error: message,
+            completedAt: new Date().toISOString(),
+          });
+          return { mode: 'qr_error' as const, provider, error: message };
+        }
+
+        throw error;
+      }
       const tokens = await this.authService.issueTokensForUser({
         user, scopes: ['profile', 'email'],
       });
-      return { mode: 'login' as const, ...tokens, user: this.userService.toApiUser(user) };
+      const response = { ...tokens, user: this.userService.toApiUser(user) };
+
+      if (pendingLoginState) {
+        await this.updatePendingLoginState(state, {
+          status: 'completed',
+          auth: response,
+          completedAt: new Date().toISOString(),
+        });
+        return { mode: 'qr_login' as const, provider };
+      }
+
+      return { mode: 'login' as const, ...response };
     }
 
     const endpoints = this.getProviderEndpoints(provider);
-    const redirectUri = `${this.getBackendBaseUrl()}/api/auth/social/${provider}/callback`;
+    const redirectUri = `${this.getOAuthCallbackBaseUrl()}/api/auth/callback`;
 
     // 1. Exchange code for access token
     const tokenResult = await this.exchangeCodeForToken(
@@ -500,6 +949,7 @@ export class SocialAuthService {
     );
 
     const pendingBindState = await this.consumePendingBindState(state);
+    const pendingLoginState = await this.getPendingLoginState(state);
 
     if (pendingBindState) {
       if (
@@ -514,6 +964,7 @@ export class SocialAuthService {
         socialProfile,
         tokenResult.accessToken,
       );
+      await this.markPendingBindStateCompleted(state, binding.id);
 
       return {
         mode: 'bind' as const,
@@ -524,7 +975,27 @@ export class SocialAuthService {
     }
 
     // 3. Find or create user in our system
-    const user = await this.findOrCreateUser(socialProfile, tokenResult.accessToken);
+    let user: Awaited<ReturnType<typeof this.findOrCreateUser>>;
+    try {
+      user = await this.findOrCreateUser(socialProfile, tokenResult.accessToken);
+    } catch (error) {
+      if (pendingLoginState) {
+        const message =
+          error instanceof SocialBindRequiredError
+            ? '该第三方账号尚未绑定用户，请先在账号中心或联系管理员完成绑定'
+            : error instanceof Error
+              ? error.message
+              : '第三方登录失败';
+        await this.updatePendingLoginState(state, {
+          status: 'failed',
+          error: message,
+          completedAt: new Date().toISOString(),
+        });
+        return { mode: 'qr_error' as const, provider, error: message };
+      }
+
+      throw error;
+    }
 
     // 4. Issue SSO tokens
     const tokens = await this.authService.issueTokensForUser({
@@ -532,10 +1003,23 @@ export class SocialAuthService {
       scopes: ['profile', 'email'],
     });
 
-    return {
-      mode: 'login' as const,
+    const response = {
       ...tokens,
       user: this.userService.toApiUser(user),
+    };
+
+    if (pendingLoginState) {
+      await this.updatePendingLoginState(state, {
+        status: 'completed',
+        auth: response,
+        completedAt: new Date().toISOString(),
+      });
+      return { mode: 'qr_login' as const, provider };
+    }
+
+    return {
+      mode: 'login' as const,
+      ...response,
     };
   }
 

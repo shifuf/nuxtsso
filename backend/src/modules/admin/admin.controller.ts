@@ -21,6 +21,7 @@ import type { RequestUser } from '../../common/security/request-user.interface';
 import { AuthService } from '../auth/auth.service';
 import {
   AuditService,
+  ClearAuditLogsDto,
   type AuditEntry,
   AuditSummaryQueryDto,
   ListAuditLogsDto,
@@ -102,6 +103,11 @@ export class AdminController {
   @Get('users')
   listUsers(@Query('q') query?: string) {
     return this.userService.listUsers(query);
+  }
+
+  @Get('users/search')
+  searchUsers(@Query('q') query?: string) {
+    return this.userService.searchBindableUsers(query);
   }
 
   @Get('users/:id')
@@ -299,6 +305,11 @@ export class AdminController {
     return result;
   }
 
+  @Get('applications/:id/secret')
+  async getApplicationSecret(@Param('id') id: string) {
+    return this.applicationService.getApplicationSecret(id);
+  }
+
   @Post('applications/:id/reset-secret')
   async resetSecret(
     @Param('id') id: string,
@@ -326,6 +337,23 @@ export class AdminController {
   @Get('audit-logs/summary')
   getAuditSummary(@Query() query: AuditSummaryQueryDto) {
     return this.auditService.getSummary(query);
+  }
+
+  @Delete('audit-logs')
+  async clearAuditLogs(
+    @Body() dto: ClearAuditLogsDto,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    const result = await this.auditService.clearLogs(dto);
+    await this.recordAdminAction(user, request, {
+      action: 'admin.audit_logs.cleared',
+      metadata: {
+        olderThanDays: dto.olderThanDays ?? null,
+        deletedCount: result.deletedCount,
+      },
+    });
+    return result;
   }
 
   // ── Social Providers ──
@@ -573,6 +601,14 @@ export class AdminController {
       metadata: { userId: id, provider: dto.provider },
     });
     return result;
+  }
+
+  @Get('users/:id/social-bind-status')
+  getSocialBindStatus(
+    @Param('id') id: string,
+    @Query('state') state: string,
+  ) {
+    return this.socialAuthService.getBindAuthorizationStatus(id, state);
   }
 
   @Post('users/:id/transfer-social-to')

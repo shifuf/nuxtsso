@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { adminApi } from '../../api/admin'
-import type { ApplicationItem, ApplicationCreateResponse } from '../../types/api'
+import type { ApplicationItem, ApplicationCreateResponse, SocialProviderConfig } from '../../types/api'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -17,6 +17,7 @@ const showCreateDialog = ref(false)
 const showSecretDialog = ref(false)
 const editingApp = ref<ApplicationItem | null>(null)
 const secretResult = ref<ApplicationCreateResponse | null>(null)
+const enabledProviders = ref<SocialProviderConfig[]>([])
 
 const formData = reactive({
   name: '',
@@ -24,8 +25,24 @@ const formData = reactive({
   redirectUris: '',
   scopes: '',
   allowRegistration: false,
-  enabledSocialProviders: '',
+  enabledSocialProviders: [] as string[],
 })
+
+const providerLabel = (name: string) => {
+  const map: Record<string, string> = {
+    wechat: '微信', qq: 'QQ', github: 'GitHub', google: 'Google',
+    alipay: '支付宝', weibo: '微博', baidu: '百度',
+    huawei: '华为', xiaomi: '小米', douyin: '抖音',
+    bilibili: 'B站', dingtalk: '钉钉',
+  }
+  return map[name] ?? name
+}
+
+const providerOptions = computed(() =>
+  enabledProviders.value
+    .filter(p => p.enabled)
+    .map(p => ({ label: providerLabel(p.name), value: p.name }))
+)
 
 const statusOptions = [
   { label: '全部状态', value: '全部' },
@@ -53,8 +70,12 @@ const registrationCount = computed(() => apps.value.filter(a => a.allowRegistrat
 const allScopes = computed(() => [...new Set(apps.value.flatMap(a => a.scopes))])
 
 onMounted(async () => {
-  await loadApps()
+  await Promise.all([loadApps(), loadProviders()])
 })
+
+async function loadProviders() {
+  try { enabledProviders.value = await adminApi.listSocialProviders() } catch { /* silent */ }
+}
 
 async function loadApps() {
   loading.value = true
@@ -71,7 +92,7 @@ function openCreate() {
   formData.redirectUris = ''
   formData.scopes = ''
   formData.allowRegistration = false
-  formData.enabledSocialProviders = ''
+  formData.enabledSocialProviders = []
   showCreateDialog.value = true
 }
 
@@ -82,7 +103,7 @@ function openEdit(app: ApplicationItem) {
   formData.redirectUris = app.redirectUris.join('\n')
   formData.scopes = app.scopes.join('\n')
   formData.allowRegistration = app.allowRegistration
-  formData.enabledSocialProviders = app.enabledSocialProviders.join('\n')
+  formData.enabledSocialProviders = [...app.enabledSocialProviders]
   showCreateDialog.value = true
 }
 
@@ -96,9 +117,7 @@ async function saveApp() {
     redirectUris: formData.redirectUris.split('\n').map(s => s.trim()).filter(Boolean),
     scopes: formData.scopes.split('\n').map(s => s.trim()).filter(Boolean),
     allowRegistration: formData.allowRegistration,
-    enabledSocialProviders: formData.enabledSocialProviders
-      ? formData.enabledSocialProviders.split('\n').map(s => s.trim()).filter(Boolean)
-      : [],
+    enabledSocialProviders: formData.enabledSocialProviders,
   }
 
   saving.value = true
@@ -169,14 +188,24 @@ function copyToClipboard(text: string, label: string) {
     MessagePlugin.success(`${label} 已复制`)
   })
 }
+
+async function viewSecret(app: ApplicationItem) {
+  try {
+    const result = await adminApi.getSecret(app.id)
+    if (!result.clientSecret) {
+      MessagePlugin.warning('该应用未存储密钥，需重置后才能查看')
+      return
+    }
+    secretResult.value = { ...app, clientSecret: result.clientSecret }
+    showSecretDialog.value = true
+  } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '获取密钥失败') }
+}
 </script>
 
 <template>
   <div class="space-y-6">
     <PageHeader
-      eyebrow="OAuth2 / OIDC"
       title="应用接入"
-      description="管理业务系统接入配置、回调地址、Scope 与注册策略。Client Secret 只在创建或重置时一次性展示。"
     >
       <template #actions>
         <t-button variant="outline" @click="loadApps">刷新</t-button>
@@ -217,6 +246,8 @@ function copyToClipboard(text: string, label: string) {
                   <td>
                     <p class="font-semibold text-[var(--text-primary)]">{{ item.name }}</p>
                     <p v-if="item.description" class="mt-1 text-sm text-[var(--text-muted)]">{{ item.description }}</p>
+                    <p v-if="item.owner" class="mt-1 text-xs text-[var(--text-muted)]">提交人：{{ item.owner.username || item.owner.email }}</p>
+                    <p v-if="item.status === 'disabled'" class="mt-1 text-xs font-semibold text-[var(--danger)]">已禁用 — 授权流程已暂停</p>
                   </td>
                   <td class="font-mono text-xs">{{ item.clientId }}</td>
                   <td class="font-mono text-xs">{{ item.redirectUris[0] || '—' }}</td>
@@ -227,9 +258,11 @@ function copyToClipboard(text: string, label: string) {
                     <StatusTag :tone="item.allowRegistration ? 'info' : 'neutral'" :label="item.allowRegistration ? '允许注册' : '仅登录'" />
                   </td>
                   <td>
-                    <div class="flex gap-2">
+                    <div class="flex gap-1.5 flex-wrap">
                       <t-button variant="outline" size="small" @click="openEdit(item)">编辑</t-button>
                       <t-button variant="outline" size="small" :theme="item.status === 'active' ? 'warning' : 'success'" @click="toggleStatus(item)">{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
+                      <t-button variant="outline" size="small" @click="viewSecret(item)">查看密钥</t-button>
+                      <t-button variant="outline" size="small" @click="resetSecret(item)">重置密钥</t-button>
                       <t-button variant="outline" size="small" theme="danger" @click="deleteApp(item)">删除</t-button>
                     </div>
                   </td>
@@ -276,6 +309,10 @@ function copyToClipboard(text: string, label: string) {
       @confirm="saveApp"
     >
       <div class="space-y-4 pt-2">
+        <div v-if="editingApp?.status === 'disabled'" class="rounded-2xl border border-[rgba(220,38,38,0.15)] bg-[rgba(239,68,68,0.08)] p-4">
+          <p class="text-sm font-semibold text-[var(--danger)]">该应用已禁用</p>
+          <p class="mt-1 text-sm text-[var(--text-muted)]">禁用期间所有 OAuth 授权流程将被拒绝，用户无法通过此应用登录。</p>
+        </div>
         <t-input v-model="formData.name" size="large" placeholder="应用名称" />
         <t-input v-model="formData.description" size="large" placeholder="描述（可选）" />
         <t-textarea
@@ -292,10 +329,13 @@ function copyToClipboard(text: string, label: string) {
           <span class="text-sm text-[var(--text-primary)]">允许注册</span>
           <t-switch v-model="formData.allowRegistration" />
         </div>
-        <t-textarea
+        <t-select
           v-model="formData.enabledSocialProviders"
-          placeholder="启用的第三方登录提供方（每行一个，如 GitHub / Google）"
-          :autosize="{ minRows: 1, maxRows: 3 }"
+          :options="providerOptions"
+          placeholder="选择已启用的第三方登录"
+          multiple
+          size="large"
+          :min-collapsed-num="3"
         />
       </div>
     </t-dialog>

@@ -36,8 +36,8 @@ export class ListAuditLogsDto {
   action?: string;
 
   @IsOptional()
-  @IsIn(AUDIT_CATEGORY_PREFIXES)
-  category?: Exclude<AuditCategory, 'system'>;
+  @IsIn([...AUDIT_CATEGORY_PREFIXES, 'system'])
+  category?: AuditCategory;
 
   @IsOptional()
   @IsInt()
@@ -52,6 +52,14 @@ export class AuditSummaryQueryDto {
   @Min(1)
   @Max(30)
   days?: number = 7;
+}
+
+export class ClearAuditLogsDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  olderThanDays?: number;
 }
 
 interface AuditLogRecord {
@@ -118,11 +126,21 @@ export class AuditService {
     const conditions: Prisma.AuditLogWhereInput[] = [];
 
     if (dto.category) {
-      conditions.push({
-        action: {
-          startsWith: `${dto.category}.`,
-        },
-      });
+      if (dto.category === 'system') {
+        conditions.push({
+          NOT: AUDIT_CATEGORY_PREFIXES.map((category) => ({
+            action: {
+              startsWith: `${category}.`,
+            },
+          })),
+        });
+      } else {
+        conditions.push({
+          action: {
+            startsWith: `${dto.category}.`,
+          },
+        });
+      }
     }
 
     if (dto.action) {
@@ -290,6 +308,25 @@ export class AuditService {
           count,
           category: this.resolveCategory(action),
         })),
+    };
+  }
+
+  async clearLogs(dto: ClearAuditLogsDto) {
+    const olderThanDays = dto.olderThanDays;
+    const result = await this.prismaService.auditLog.deleteMany({
+      where:
+        olderThanDays === undefined
+          ? undefined
+          : {
+              createdAt: {
+                lt: new Date(Date.now() - olderThanDays * DAY_IN_MS),
+              },
+            },
+    });
+
+    return {
+      success: true,
+      deletedCount: result.count,
     };
   }
 }

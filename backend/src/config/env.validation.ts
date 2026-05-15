@@ -8,6 +8,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().default('file:./prisma/dev.db'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
   OIDC_ISSUER: z.string().default('http://localhost:3000'),
+  OAUTH_CALLBACK_BASE_URL: z.string().optional(),
+  FRONTEND_DIST_DIR: z.string().optional(),
   JWT_ACCESS_TOKEN_EXPIRES_IN: z.coerce.number().default(3600),
   JWT_REFRESH_TOKEN_EXPIRES_IN: z.coerce.number().default(604800),
   JWT_KEY_ID: z.string().default('sso-dev-key'),

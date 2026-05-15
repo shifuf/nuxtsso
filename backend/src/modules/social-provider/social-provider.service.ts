@@ -12,6 +12,7 @@ import {
   IsString,
   IsUrl,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { PrismaService } from '../../database/prisma.service';
 import {
   parseStringArray,
@@ -40,6 +41,7 @@ export class UpdateSocialProviderDto {
   apiUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => emptyStringToUndefined(value))
   @IsUrl({ require_tld: false, require_protocol: true })
   redirectUri?: string;
 
@@ -49,16 +51,23 @@ export class UpdateSocialProviderDto {
   scopes?: string[];
 
   @IsOptional()
+  @Transform(({ value }) => emptyStringToUndefined(value))
   @IsUrl({ require_tld: false, require_protocol: true })
   authUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => emptyStringToUndefined(value))
   @IsUrl({ require_tld: false, require_protocol: true })
   tokenUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => emptyStringToUndefined(value))
   @IsUrl({ require_tld: false, require_protocol: true })
   userInfoUrl?: string;
+}
+
+function emptyStringToUndefined(value: unknown) {
+  return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
 export class CreateSocialProviderDto {

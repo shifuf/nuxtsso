@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { authApi } from '../api/auth'
 import { oauthApi } from '../api/oauth'
 import { useAuthStore } from '../stores/auth'
+import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../utils/qrcode'
 import type { AuthorizeContext } from '../types/api'
 import StatusTag from '../components/StatusTag.vue'
 
@@ -17,6 +18,20 @@ const authStore = useAuthStore()
 const mode = ref<AuthMode>('password')
 const submitting = ref(false)
 const sendingCode = ref(false)
+const socialQrVisible = ref(false)
+const socialQrProvider = ref('')
+const socialQrUrl = ref('')
+const socialQrDisplayUrl = ref('')
+const socialQrState = ref('')
+const socialQrStatus = ref<'idle' | 'pending' | 'success' | 'failed' | 'expired'>('idle')
+const socialQrMessage = ref('')
+let socialQrTimer: ReturnType<typeof setInterval> | null = null
+const socialQrOptions = {
+  width: 230,
+  margin: 2,
+  dark: '#111827',
+  light: '#ffffff',
+}
 
 const oauthCtx = ref<AuthorizeContext | null>(null)
 const socialProviders = ref<Array<{ name: string; enabled: boolean }>>([])
@@ -35,6 +50,7 @@ const showEmailTab = computed(() => requireEmailVerification.value)
 const showRegisterTab = computed(() => hasOAuthContext.value && oauthCtx.value?.allowRegistration === true)
 const showResetTab = computed(() => requireEmailVerification.value)
 const showAuthorizeTab = computed(() => authStore.isAuthenticated && hasOAuthContext.value)
+const isAuthorizeOnly = computed(() => authStore.isAuthenticated && hasOAuthContext.value && oauthCtx.value)
 
 const enabledProviders = computed(() =>
   socialProviders.value.filter(p => p.enabled)
@@ -113,6 +129,10 @@ async function loadPublicConfig() {
 
 onMounted(async () => {
   await Promise.all([loadOAuthContext(), loadSocialProviders(), loadPublicConfig()])
+})
+
+onUnmounted(() => {
+  stopSocialQrPolling()
 })
 
 async function handleSendCode(type: 'login' | 'register' | 'reset-password') {
@@ -195,15 +215,97 @@ async function handleAuthorize(decision: 'approve' | 'deny') {
   finally { submitting.value = false }
 }
 
-function handleSocialLogin(provider: string) {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
-  const params = new URLSearchParams()
-  if (clientId.value) params.set('client_id', clientId.value)
-  if (redirectUri.value) params.set('redirect_uri', redirectUri.value)
-  const qs = params.toString()
-  window.location.href = qs
-    ? `${baseUrl}/api/auth/social/${provider}?${qs}`
-    : `${baseUrl}/api/auth/social/${provider}`
+function stopSocialQrPolling() {
+  if (socialQrTimer) {
+    clearInterval(socialQrTimer)
+    socialQrTimer = null
+  }
+}
+
+function resetSocialQr() {
+  stopSocialQrPolling()
+  socialQrProvider.value = ''
+  socialQrUrl.value = ''
+  socialQrDisplayUrl.value = ''
+  socialQrState.value = ''
+  socialQrStatus.value = 'idle'
+  socialQrMessage.value = ''
+}
+
+async function handleSocialLogin(provider: string) {
+  resetSocialQr()
+  socialQrVisible.value = true
+  socialQrProvider.value = provider
+  socialQrStatus.value = 'pending'
+  socialQrMessage.value = '正在生成授权二维码...'
+
+  try {
+    const result = await authApi.createSocialLoginQr(provider, clientId.value, redirectUri.value)
+    socialQrUrl.value = result.authorizeUrl
+    socialQrState.value = result.state
+    socialQrMessage.value = '等待扫码/授权'
+    socialQrDisplayUrl.value = await createQrDisplayUrl(
+      socialQrUrl.value,
+      result.qrCodeUrl,
+      socialQrOptions,
+    )
+
+    socialQrTimer = setInterval(() => {
+      void checkSocialLoginStatus()
+    }, 1800)
+    void checkSocialLoginStatus()
+  } catch (e: unknown) {
+    socialQrStatus.value = 'failed'
+    socialQrMessage.value = (e as { message?: string })?.message || '生成二维码失败'
+  }
+}
+
+async function handleSocialQrImageError() {
+  if (!socialQrUrl.value || socialQrDisplayUrl.value.startsWith('data:image/')) return
+
+  try {
+    socialQrDisplayUrl.value = await createAuthorizeQrDataUrl(socialQrUrl.value, socialQrOptions)
+  } catch {
+    socialQrStatus.value = 'failed'
+    socialQrMessage.value = '二维码图片加载失败，请重新生成'
+  }
+}
+
+async function checkSocialLoginStatus() {
+  if (!socialQrState.value) return
+
+  try {
+    const result = await authApi.getSocialLoginStatus(socialQrState.value)
+    if (result.status === 'completed' && result.auth) {
+      stopSocialQrPolling()
+      socialQrStatus.value = 'success'
+      socialQrMessage.value = '授权成功，正在进入系统...'
+      authStore.applySession(result.auth)
+      setTimeout(() => {
+        socialQrVisible.value = false
+        afterLoginSuccess(result.auth!.user.role)
+        resetSocialQr()
+      }, 800)
+      return
+    }
+
+    if (result.status === 'failed') {
+      stopSocialQrPolling()
+      socialQrStatus.value = 'failed'
+      socialQrMessage.value = result.error || '第三方授权失败'
+      return
+    }
+
+    if (result.status === 'expired') {
+      stopSocialQrPolling()
+      socialQrStatus.value = 'expired'
+      socialQrMessage.value = '二维码已过期，请重新发起扫码登录'
+    }
+  } catch (e: unknown) {
+    stopSocialQrPolling()
+    socialQrStatus.value = 'failed'
+    socialQrMessage.value = (e as { message?: string })?.message || '查询扫码状态失败'
+  }
 }
 
 function afterLoginSuccess(role: string) {
@@ -236,15 +338,15 @@ function handleSecondaryAction() {
 </script>
 
 <template>
-  <div :class="oauthCtx ? 'auth-grid' : 'auth-centered'">
+  <div :class="isAuthorizeOnly ? 'auth-centered' : oauthCtx ? 'auth-grid' : 'auth-centered'">
     <section class="panel-card auth-card relative overflow-hidden">
       <div class="page-header">
         <div>
-          <p class="eyebrow">身份入口</p>
+          <p v-if="!isAuthorizeOnly" class="eyebrow">身份入口</p>
           <h1 class="page-title">{{ titleMap[mode] }}</h1>
           <p class="page-copy">{{ descriptionMap[mode] }}</p>
         </div>
-        <div class="mode-switch">
+        <div v-if="!isAuthorizeOnly" class="mode-switch">
           <button :class="['mode-pill', mode === 'password' && 'is-active']" @click="mode = 'password'">密码登录</button>
           <button v-if="showEmailTab" :class="['mode-pill', mode === 'email' && 'is-active']" @click="mode = 'email'">验证码登录</button>
           <button v-if="showRegisterTab" :class="['mode-pill', mode === 'register' && 'is-active']" @click="mode = 'register'">注册</button>
@@ -392,7 +494,7 @@ function handleSecondaryAction() {
       </div>
     </section>
 
-    <aside v-if="oauthCtx" class="space-y-6">
+    <aside v-if="oauthCtx && !isAuthorizeOnly" class="space-y-6">
       <section class="panel-contrast auth-card" style="animation-delay: 0.3s;">
         <p class="eyebrow !text-slate-400">应用上下文</p>
         <h2 class="mt-3 text-3xl font-display text-white">来自 {{ oauthCtx.clientName }}</h2>
@@ -415,6 +517,45 @@ function handleSecondaryAction() {
         </div>
       </section>
     </aside>
+
+    <t-dialog
+      v-model:visible="socialQrVisible"
+      :header="`${providerLabel(socialQrProvider)} 扫码登录`"
+      width="430px"
+      :footer="false"
+      @close="resetSocialQr"
+    >
+      <div class="space-y-4 pt-2 text-center">
+        <div class="relative mx-auto grid min-h-[250px] w-[250px] place-items-center rounded-3xl border border-[var(--border-primary)] bg-white p-3">
+          <img v-if="socialQrDisplayUrl" :src="socialQrDisplayUrl" alt="第三方授权二维码" class="h-[230px] w-[230px] rounded-2xl object-contain" @error="handleSocialQrImageError" />
+          <div v-else class="grid h-[230px] w-[230px] place-items-center rounded-2xl bg-slate-50 text-sm text-slate-500">二维码生成中...</div>
+          <div
+            v-if="socialQrStatus === 'success' || socialQrStatus === 'failed' || socialQrStatus === 'expired'"
+            class="absolute inset-3 grid place-items-center rounded-2xl bg-white/92 backdrop-blur-sm"
+          >
+            <div class="space-y-2">
+              <div
+                :class="[
+                  'mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl font-bold text-white',
+                  socialQrStatus === 'success' ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'
+                ]"
+              >
+                {{ socialQrStatus === 'success' ? '✓' : '!' }}
+              </div>
+              <p class="text-sm font-semibold text-slate-900">
+                {{ socialQrStatus === 'success' ? '授权成功' : socialQrStatus === 'expired' ? '二维码过期' : '授权失败' }}
+              </p>
+            </div>
+          </div>
+        </div>
+        <p class="text-sm font-semibold text-[var(--text-primary)]">{{ socialQrMessage }}</p>
+        <p v-if="socialQrStatus === 'pending'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，本页面会自动监听结果。</p>
+        <div v-if="socialQrStatus === 'failed' || socialQrStatus === 'expired'" class="action-row justify-center">
+          <t-button variant="outline" @click="socialQrVisible = false; resetSocialQr()">关闭</t-button>
+          <t-button theme="primary" @click="handleSocialLogin(socialQrProvider)">重新生成</t-button>
+        </div>
+      </div>
+    </t-dialog>
   </div>
 </template>
 

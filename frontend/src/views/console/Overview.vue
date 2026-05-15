@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { adminApi } from '../../api/admin'
 import type { ApplicationItem, AuditLogItem, AuditSummary, SocialProviderConfig } from '../../types/api'
-import { formatAuditAction, formatAuditCategory, formatCount } from '../../utils/console'
+import { formatAuditAction, formatAuditCategory, formatCount, formatDateTime } from '../../utils/console'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -56,9 +56,7 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
 <template>
   <div class="space-y-6">
     <PageHeader
-      eyebrow="管理员视角"
       title="运营概览"
-      description="优先展示活跃账号、在线应用、近期事件和第三方入口状态，帮助快速判断认证中心是否稳定运行。"
     >
       <template #actions>
         <t-button variant="outline" @click="loadData">刷新</t-button>
@@ -157,7 +155,7 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
               <div class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-muted)] px-4 py-4">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <p class="text-sm font-semibold text-[var(--text-primary)]">{{ formatAuditAction(log.action) }}</p>
-                  <StatusTag :tone="logTone(log.category)" :label="new Date(log.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })" />
+                  <StatusTag :tone="logTone(log.category)" :label="formatDateTime(log.createdAt)" />
                 </div>
                 <p class="mt-2 text-sm text-[var(--text-secondary)]">{{ log.actorEmail || log.actorName || 'system' }} · {{ log.category }}</p>
               </div>

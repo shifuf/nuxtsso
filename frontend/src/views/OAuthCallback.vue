@@ -10,7 +10,6 @@ const statusText = ref('处理中...')
 onMounted(() => {
   const errParam = route.query.error as string | undefined
   const code = route.query.code as string | undefined
-  const state = route.query.state as string | undefined
 
   if (errParam) {
     error.value = decodeURIComponent(errParam)

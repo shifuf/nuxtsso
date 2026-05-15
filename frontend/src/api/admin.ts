@@ -26,14 +26,11 @@ export interface CreateUserPayload {
   email: string;
   username?: string;
   password: string;
-  role?: 'admin' | 'user';
 }
 
 export interface UpdateUserPayload {
   username?: string;
-  avatar?: string | null;
   emailVerified?: boolean;
-  role?: 'admin' | 'user';
   status?: 'active' | 'disabled';
 }
 
@@ -61,6 +58,12 @@ export const adminApi = {
   // Users
   async listUsers(query?: string) {
     const { data } = await http.get('/api/admin/users', { params: query ? { q: query } : undefined });
+    return data as UserProfile[];
+  },
+  async searchUsers(query?: string) {
+    const { data } = await http.get('/api/admin/users/search', {
+      params: query ? { q: query } : undefined,
+    });
     return data as UserProfile[];
   },
   async getUserById(id: string) {
@@ -116,6 +119,10 @@ export const adminApi = {
   async resetSecret(id: string) {
     const { data } = await http.post(`/api/admin/applications/${id}/reset-secret`);
     return data as { clientId: string; clientSecret: string };
+  },
+  async getSecret(id: string) {
+    const { data } = await http.get(`/api/admin/applications/${id}/secret`);
+    return data as { clientId: string; clientSecret: string | null };
   },
 
   // Social Providers
@@ -221,6 +228,12 @@ export const adminApi = {
     const { data } = await http.get('/api/admin/audit-logs/summary', { params: { days } });
     return data as AuditSummary;
   },
+  async clearAuditLogs(olderThanDays?: number) {
+    const { data } = await http.delete('/api/admin/audit-logs', {
+      data: olderThanDays === undefined ? {} : { olderThanDays },
+    });
+    return data as { success: boolean; deletedCount: number };
+  },
 
   // Social Account Binding
   async bindUserSocialAccount(userId: string, provider: string, providerUserId: string, profile?: string) {
@@ -237,6 +250,19 @@ export const adminApi = {
   },
   async generateSocialBindUrl(userId: string, provider: string) {
     const { data } = await http.post(`/api/admin/users/${userId}/social-bind-url`, { provider });
-    return data as { authorizeUrl: string; state: string };
+    return data as { authorizeUrl: string; qrCodeUrl?: string | null; state: string };
+  },
+  async getSocialBindStatus(userId: string, state: string) {
+    const { data } = await http.get(`/api/admin/users/${userId}/social-bind-status`, {
+      params: { state },
+    });
+    return data as {
+      status: 'pending' | 'scanned' | 'completed' | 'failed' | 'expired';
+      provider?: string;
+      bindingId?: string | null;
+      error?: string | null;
+      completedAt?: string | null;
+      scannedAt?: string | null;
+    };
   },
 };

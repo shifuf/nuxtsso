@@ -100,7 +100,18 @@ export const auditCategoryLabels: Record<AuditCategory, string> = {
 };
 
 export function formatAuditAction(action: string) {
-  return auditActionLabels[action] ?? action.replaceAll('.', ' / ');
+  return action.replaceAll('.', ' / ');
+}
+
+export function parseBrowser(ua?: string | null): string {
+  if (!ua) return '未知浏览器'
+  if (ua.includes('Edg/')) return 'Edge'
+  if (ua.includes('OPR/') || ua.includes('Opera')) return 'Opera'
+  if (ua.includes('Chrome') && !ua.includes('Chromium')) return 'Chrome'
+  if (ua.includes('Firefox')) return 'Firefox'
+  if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari'
+  if (ua.includes('Chromium')) return 'Chromium'
+  return '未知浏览器'
 }
 
 export function formatAuditCategory(category: AuditCategory) {
@@ -143,10 +154,11 @@ export function formatDateTime(value: string) {
 
   return new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+    month: 'numeric',
+    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
   }).format(date);
 }
 

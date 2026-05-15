@@ -43,6 +43,7 @@ model User {
   updatedAt       DateTime                 @updatedAt
   auditLogs       AuditLog[]
   authCodes       OauthAuthorizationCode[]
+  applications     Application[]
   socialAccounts  SocialAccount[]
   tokens          OauthToken[]
 }
@@ -53,15 +54,20 @@ model Application {
   description        String?
   clientId           String                   @unique
   clientSecretHash   String
+  encryptedClientSecret String?
   redirectUris       String
   scopes             String
   allowRegistration  Boolean                  @default(true)
   enabledSocialProviders String?
+  ownerId            String?
   status             ApplicationStatus        @default(ACTIVE)
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
+  owner              User?                    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   authCodes          OauthAuthorizationCode[]
   tokens             OauthToken[]
+
+  @@index([ownerId])
 }
 
 model SocialAccount {
@@ -123,6 +129,7 @@ model OauthToken {
   expiresAt        DateTime
   refreshExpiresAt DateTime?
   revoked          Boolean      @default(false)
+  userAgent        String?
   createdAt        DateTime     @default(now())
   client           Application? @relation(fields: [clientId], references: [clientId], onDelete: SetNull)
   user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)

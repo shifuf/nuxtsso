@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { adminApi } from '../../api/admin'
-import type { UserProfile, SocialAccountItem } from '../../types/api'
+import type { UserProfile, SocialAccountItem, SocialProviderConfig } from '../../types/api'
+import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../../utils/qrcode'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -28,12 +29,37 @@ const userForm = reactive({
   email: '',
   username: '',
   password: '',
-  role: 'user' as 'admin' | 'user',
   status: 'active' as 'active' | 'disabled',
 })
 
 const socialSearch = ref('')
 const selectedSocial = ref<SocialAccountItem | null>(null)
+
+// Bind user dialog (for social users)
+const showUserBindDialog = ref(false)
+const userBindTarget = ref<UserProfile | null>(null)
+const userBindUsername = ref('')
+const bindableUsers = ref<UserProfile[]>([])
+const selectedBindUser = ref<UserProfile | null>(null)
+let bindUserSearchTimer: ReturnType<typeof setTimeout> | null = null
+
+// Social bind mode: 'input' = enter ID, 'qrcode' = scan QR code
+const socialBindMode = ref<'input' | 'qrcode'>('input')
+const enabledProviders = ref<SocialProviderConfig[]>([])
+const selectedQrProvider = ref<SocialProviderConfig | null>(null)
+const socialBindUrl = ref('')
+const socialBindDisplayUrl = ref('')
+const socialBindState = ref('')
+const socialBindPolling = ref(false)
+const socialBindStatus = ref<'idle' | 'pending' | 'success' | 'failed' | 'expired'>('idle')
+const socialBindMessage = ref('')
+let socialBindPollTimer: ReturnType<typeof setInterval> | null = null
+const socialBindQrOptions = {
+  width: 220,
+  margin: 2,
+  dark: '#1a1a2e',
+  light: '#ffffff',
+}
 
 const adminCount = computed(() => users.value.filter(u => u.role === 'admin').length)
 const verifiedCount = computed(() => users.value.filter(u => u.emailVerified).length)
@@ -45,7 +71,8 @@ const filteredUsers = computed(() => {
     const q = searchQuery.value.toLowerCase()
     result = result.filter(u =>
       (u.email?.toLowerCase().includes(q)) ||
-      (u.username?.toLowerCase().includes(q))
+      (u.username?.toLowerCase().includes(q)) ||
+      u.id.toLowerCase().includes(q)
     )
   }
   if (roleFilter.value !== '全部') result = result.filter(u => u.role === roleFilter.value)
@@ -65,12 +92,44 @@ const statusOptions = [
   { label: '禁用', value: 'disabled' },
 ]
 
+const socialRegistrationSources = [
+  'wechat',
+  'qq',
+  'github',
+  'google',
+  'alipay',
+  'weibo',
+  'baidu',
+  'huawei',
+  'xiaomi',
+  'douyin',
+  'bilibili',
+  'dingtalk',
+]
+
 function isSocialUser(user: UserProfile) {
-  if (user.socialAccounts && user.socialAccounts.length > 0) return true
-  if (user.email?.includes('@social.local')) return true
-  if (user.registrationSource?.toLowerCase().includes('social')) return true
-  if (user.registrationSource?.toLowerCase().includes('第三方')) return true
-  return false
+  const source = user.registrationSource?.toLowerCase() || ''
+  return Boolean(
+    user.email?.endsWith('@social.local') &&
+      (source.includes('social') || socialRegistrationSources.includes(source))
+  )
+}
+
+function isAdminUser(user: UserProfile) {
+  return user.role === 'admin'
+}
+
+function hasDeleteBlocker(user: UserProfile) {
+  if (isAdminUser(user)) return true
+  if (isSocialUser(user)) return Boolean(user.boundToUser)
+  return Boolean(user.socialAccounts?.length)
+}
+
+function deleteBlockerText(user: UserProfile) {
+  if (isAdminUser(user)) return '管理员账号不允许删除'
+  if (isSocialUser(user) && user.boundToUser) return '请先解除绑定用户关系'
+  if (!isSocialUser(user) && user.socialAccounts?.length) return '请先解除第三方绑定'
+  return ''
 }
 
 function isRegularUser(user: UserProfile) {
@@ -81,14 +140,36 @@ const filteredSocialAccounts = computed(() => {
   if (!socialSearch.value) return []
   const q = socialSearch.value.toLowerCase()
   return allSocialAccounts.value.filter(sa => {
-    if (sa.userId) return false
+    if (!sa.available) return false
     return sa.provider.toLowerCase().includes(q) ||
-           sa.providerUserId.toLowerCase().includes(q)
+           sa.providerUserId.toLowerCase().includes(q) ||
+           (sa.boundEmail?.toLowerCase().includes(q)) ||
+           (sa.boundUsername?.toLowerCase().includes(q))
   })
 })
 
 onMounted(async () => {
   await loadUsers()
+})
+
+onUnmounted(() => {
+  stopSocialBindPolling()
+  if (bindUserSearchTimer) clearTimeout(bindUserSearchTimer)
+})
+
+watch(userBindUsername, (value) => {
+  selectedBindUser.value = null
+  if (bindUserSearchTimer) clearTimeout(bindUserSearchTimer)
+
+  const query = value.trim()
+  if (!query) {
+    bindableUsers.value = []
+    return
+  }
+
+  bindUserSearchTimer = setTimeout(() => {
+    void searchBindableUsers()
+  }, 300)
 })
 
 async function loadUsers() {
@@ -105,7 +186,6 @@ function openCreate() {
   userForm.email = ''
   userForm.username = ''
   userForm.password = ''
-  userForm.role = 'user'
   userForm.status = 'active'
   showUserDialog.value = true
 }
@@ -115,7 +195,6 @@ function openEdit(user: UserProfile) {
   userForm.email = user.email || ''
   userForm.username = user.username || ''
   userForm.password = ''
-  userForm.role = user.role
   userForm.status = user.status
   showUserDialog.value = true
 }
@@ -127,9 +206,10 @@ async function saveUser() {
     if (editingUser.value) {
       await adminApi.updateUser(editingUser.value.id, {
         username: userForm.username || undefined,
-        role: userForm.role,
-        status: userForm.status,
       })
+      if (editingUser.value.status !== userForm.status && editingUser.value.role !== 'admin') {
+        await adminApi.updateUserStatus(editingUser.value.id, userForm.status)
+      }
       MessagePlugin.success('用户已更新')
     } else {
       if (!userForm.password) return MessagePlugin.warning('请输入密码')
@@ -137,7 +217,6 @@ async function saveUser() {
         email: userForm.email,
         username: userForm.username || undefined,
         password: userForm.password,
-        role: userForm.role,
       })
       MessagePlugin.success('用户已创建')
     }
@@ -148,6 +227,9 @@ async function saveUser() {
 }
 
 async function deleteUser(user: UserProfile) {
+  const blockerText = deleteBlockerText(user)
+  if (blockerText) return MessagePlugin.warning(blockerText)
+
   const dialog = DialogPlugin.confirm({
     header: '删除用户',
     body: `确定要删除 "${user.username || user.email}" 吗？该操作不可撤销。`,
@@ -166,6 +248,7 @@ async function deleteUser(user: UserProfile) {
 }
 
 async function toggleStatus(user: UserProfile) {
+  if (isAdminUser(user)) return MessagePlugin.warning('管理员账号不允许禁用')
   const newStatus = user.status === 'active' ? 'disabled' : 'active'
   try {
     await adminApi.updateUserStatus(user.id, newStatus)
@@ -196,16 +279,135 @@ async function openSocialBind(user: UserProfile) {
   bindTargetUser.value = user
   socialSearch.value = ''
   selectedSocial.value = null
-
-  if (isSocialUser(user)) {
-    MessagePlugin.warning('第三方注册用户无法绑定其他第三方账号')
-    return
-  }
+  socialBindMode.value = 'input'
+  selectedQrProvider.value = null
+  socialBindUrl.value = ''
+  socialBindDisplayUrl.value = ''
+  socialBindState.value = ''
+  socialBindStatus.value = 'idle'
+  socialBindMessage.value = ''
+  stopSocialBindPolling()
 
   try {
-    allSocialAccounts.value = await adminApi.listAllSocialAccounts()
+    const [accounts, providers] = await Promise.all([
+      adminApi.listAllSocialAccounts(),
+      adminApi.listSocialProviders(),
+    ])
+    allSocialAccounts.value = accounts
+    enabledProviders.value = providers.filter(p => p.enabled)
   } catch { /* silent */ }
   showSocialDialog.value = true
+}
+
+function switchSocialBindMode(mode: 'input' | 'qrcode') {
+  socialBindMode.value = mode
+  selectedQrProvider.value = null
+  socialBindUrl.value = ''
+  socialBindDisplayUrl.value = ''
+  socialBindState.value = ''
+  socialBindStatus.value = 'idle'
+  socialBindMessage.value = ''
+  stopSocialBindPolling()
+}
+
+async function selectQrProvider(provider: SocialProviderConfig) {
+  if (!bindTargetUser.value) return
+  selectedQrProvider.value = provider
+  socialBindUrl.value = ''
+  socialBindDisplayUrl.value = ''
+  try {
+    socialBindStatus.value = 'pending'
+    socialBindMessage.value = '正在生成绑定二维码...'
+    const result = await adminApi.generateSocialBindUrl(bindTargetUser.value.id, provider.name)
+    socialBindUrl.value = result.authorizeUrl
+    socialBindState.value = result.state
+    socialBindMessage.value = '等待扫码/授权'
+    socialBindDisplayUrl.value = await createQrDisplayUrl(
+      socialBindUrl.value,
+      result.qrCodeUrl,
+      socialBindQrOptions,
+    )
+    startSocialBindPolling()
+  } catch (e: unknown) {
+    socialBindStatus.value = 'expired'
+    socialBindMessage.value = (e as { message?: string })?.message || '生成二维码失败'
+    MessagePlugin.error((e as { message?: string })?.message || '生成二维码失败')
+  }
+}
+
+async function handleSocialBindQrImageError() {
+  if (!socialBindUrl.value || socialBindDisplayUrl.value.startsWith('data:image/')) return
+
+  try {
+    socialBindDisplayUrl.value = await createAuthorizeQrDataUrl(socialBindUrl.value, socialBindQrOptions)
+  } catch {
+    socialBindStatus.value = 'failed'
+    socialBindMessage.value = '二维码图片加载失败，请重新生成'
+  }
+}
+
+function stopSocialBindPolling() {
+  if (socialBindPollTimer) {
+    clearInterval(socialBindPollTimer)
+    socialBindPollTimer = null
+  }
+  socialBindPolling.value = false
+}
+
+function startSocialBindPolling() {
+  stopSocialBindPolling()
+  if (!bindTargetUser.value || !socialBindState.value) return
+
+  socialBindPolling.value = true
+  socialBindPollTimer = setInterval(() => {
+    void checkSocialBindStatus()
+  }, 1800)
+  void checkSocialBindStatus()
+}
+
+async function checkSocialBindStatus() {
+  if (!bindTargetUser.value || !socialBindState.value) return
+
+  try {
+    const result = await adminApi.getSocialBindStatus(bindTargetUser.value.id, socialBindState.value)
+    if (result.status === 'completed') {
+      stopSocialBindPolling()
+      socialBindStatus.value = 'success'
+      socialBindMessage.value = '授权已完成，第三方账号已绑定'
+      MessagePlugin.success('扫码授权已完成，第三方账号已绑定')
+      setTimeout(async () => {
+        showSocialDialog.value = false
+        resetSocialBindDialog()
+        await loadUsers()
+      }, 900)
+    } else if (result.status === 'expired') {
+      stopSocialBindPolling()
+      socialBindStatus.value = 'expired'
+      socialBindMessage.value = '绑定二维码已过期，请重新生成'
+      MessagePlugin.warning('绑定二维码已过期，请重新生成')
+    } else if (result.status === 'failed') {
+      stopSocialBindPolling()
+      socialBindStatus.value = 'failed'
+      socialBindMessage.value = result.error || '第三方授权失败，请重新生成'
+      MessagePlugin.error(socialBindMessage.value)
+    }
+  } catch (e: unknown) {
+    stopSocialBindPolling()
+    MessagePlugin.error((e as { message?: string })?.message || '查询绑定状态失败')
+  }
+}
+
+function resetSocialBindDialog() {
+  socialSearch.value = ''
+  selectedSocial.value = null
+  socialBindMode.value = 'input'
+  selectedQrProvider.value = null
+  socialBindUrl.value = ''
+  socialBindDisplayUrl.value = ''
+  socialBindState.value = ''
+  socialBindStatus.value = 'idle'
+  socialBindMessage.value = ''
+  stopSocialBindPolling()
 }
 
 async function bindSocial() {
@@ -241,14 +443,55 @@ async function unbindSocial(userId: string, provider: string) {
     },
   })
 }
+
+async function unbindSocialPlaceholder(user: UserProfile) {
+  const provider = user.registrationSource || ''
+  const targetUserId = user.boundToUser?.id
+  if (!provider || !targetUserId) return MessagePlugin.warning('未找到可解绑的第三方绑定')
+
+  await unbindSocial(targetUserId, provider)
+}
+
+// ── Bind User (for social users) ──
+async function openUserBind(user: UserProfile) {
+  userBindTarget.value = user
+  userBindUsername.value = ''
+  bindableUsers.value = []
+  selectedBindUser.value = null
+  showUserBindDialog.value = true
+}
+
+async function searchBindableUsers() {
+  if (!userBindUsername.value.trim()) {
+    bindableUsers.value = []
+    return
+  }
+  try {
+    bindableUsers.value = await adminApi.searchUsers(userBindUsername.value.trim())
+  } catch (e: unknown) {
+    MessagePlugin.error((e as { message?: string })?.message || '搜索用户失败')
+  }
+}
+
+async function bindToUser() {
+  const target = selectedBindUser.value?.id || userBindUsername.value.trim()
+  if (!target) return MessagePlugin.warning('请选择或输入目标用户')
+  if (!userBindTarget.value) return
+  saving.value = true
+  try {
+    await adminApi.transferSocialBindings(userBindTarget.value.id, target)
+    MessagePlugin.success('已成功绑定用户')
+    showUserBindDialog.value = false
+    await loadUsers()
+  } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '绑定失败') }
+  finally { saving.value = false }
+}
 </script>
 
 <template>
   <div class="space-y-6">
     <PageHeader
-      eyebrow="管理员视角"
       title="用户管理"
-      description="管理用户生命周期、角色、状态和第三方绑定关系。普通用户可绑定第三方账号，第三方用户可绑定已有普通用户，禁止同类型互绑。"
     >
       <template #actions>
         <t-button variant="outline" @click="loadUsers">刷新</t-button>
@@ -317,6 +560,11 @@ async function unbindSocial(userId: string, provider: string) {
                       <div v-if="item.boundToUser" class="flex items-center gap-2">
                         <StatusTag tone="success" label="已绑定用户" />
                         <span class="text-xs text-[var(--text-primary)]">{{ item.boundToUser.username || item.boundToUser.email }}</span>
+                        <button
+                          class="token-chip text-xs cursor-pointer hover:opacity-80"
+                          type="button"
+                          @click="unbindSocialPlaceholder(item)"
+                        >解除绑定</button>
                       </div>
                       <span v-else class="text-sm text-[var(--text-muted)]">未绑定用户</span>
                     </template>
@@ -330,7 +578,13 @@ async function unbindSocial(userId: string, provider: string) {
                   <td>
                     <div class="flex gap-1.5 flex-wrap">
                       <t-button variant="outline" size="small" @click="openEdit(item)">编辑</t-button>
-                      <t-button variant="outline" size="small" :theme="item.status === 'active' ? 'warning' : 'success'" @click="toggleStatus(item)">{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
+                      <t-button
+                        variant="outline"
+                        size="small"
+                        :theme="item.status === 'active' ? 'warning' : 'success'"
+                        :disabled="isAdminUser(item)"
+                        @click="toggleStatus(item)"
+                      >{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
                       <t-button variant="outline" size="small" @click="openPasswordReset(item.id)">重置密码</t-button>
                       <t-button
                         v-if="isRegularUser(item)"
@@ -338,7 +592,21 @@ async function unbindSocial(userId: string, provider: string) {
                         size="small"
                         @click="openSocialBind(item)"
                       >绑定三方</t-button>
-                      <t-button variant="outline" size="small" theme="danger" @click="deleteUser(item)">删除</t-button>
+                      <t-button
+                        v-if="isSocialUser(item) && !item.boundToUser"
+                        variant="outline"
+                        size="small"
+                        theme="primary"
+                        @click="openUserBind(item)"
+                      >绑定用户</t-button>
+                      <t-button
+                        variant="outline"
+                        size="small"
+                        theme="danger"
+                        :disabled="hasDeleteBlocker(item)"
+                        :title="deleteBlockerText(item)"
+                        @click="deleteUser(item)"
+                      >删除</t-button>
                     </div>
                   </td>
                 </tr>
@@ -361,29 +629,20 @@ async function unbindSocial(userId: string, provider: string) {
       :cancel-btn="{ content: '取消', variant: 'outline' }"
       @confirm="saveUser"
     >
-      <div class="space-y-4 pt-2">
+      <form class="space-y-4 pt-2" @submit.prevent="saveUser">
         <t-input v-model="userForm.email" size="large" placeholder="邮箱" :disabled="!!editingUser" />
         <t-input v-model="userForm.username" size="large" placeholder="用户名" />
         <t-input v-if="!editingUser" v-model="userForm.password" type="password" size="large" placeholder="密码" />
-        <div class="grid gap-4 sm:grid-cols-2">
-          <t-select
-            v-model="userForm.role"
-            size="large"
-            :options="[
-              { label: '管理员', value: 'admin' },
-              { label: '用户', value: 'user' },
-            ]"
-          />
-          <t-select
-            v-model="userForm.status"
-            size="large"
-            :options="[
-              { label: '启用', value: 'active' },
-              { label: '禁用', value: 'disabled' },
-            ]"
-          />
-        </div>
-      </div>
+        <t-select
+          v-model="userForm.status"
+          size="large"
+          :disabled="editingUser?.role === 'admin'"
+          :options="[
+            { label: '启用', value: 'active' },
+            { label: '禁用', value: 'disabled' },
+          ]"
+        />
+      </form>
     </t-dialog>
 
     <!-- Reset Password Dialog -->
@@ -395,55 +654,166 @@ async function unbindSocial(userId: string, provider: string) {
       :cancel-btn="{ content: '取消', variant: 'outline' }"
       @confirm="resetPassword(newPassword)"
     >
-      <div class="pt-2">
+      <form class="pt-2" @submit.prevent="resetPassword(newPassword)">
         <t-input v-model="newPassword" size="large" type="password" placeholder="输入新密码" />
-      </div>
+      </form>
     </t-dialog>
 
     <!-- Social Bind Dialog -->
     <t-dialog
       v-model:visible="showSocialDialog"
       header="绑定第三方账号"
-      width="540px"
-      :confirm-btn="{ content: '绑定', theme: 'primary', loading: saving, disabled: !selectedSocial }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="bindSocial"
-      @close="socialSearch = ''; selectedSocial = null"
+      width="580px"
+      :confirm-btn="socialBindMode === 'input' ? { content: '绑定', theme: 'primary', loading: saving, disabled: !selectedSocial } : null"
+      :cancel-btn="{ content: '关闭', variant: 'outline' }"
+      @confirm="socialBindMode === 'input' ? bindSocial() : undefined"
+      @close="resetSocialBindDialog"
     >
       <div class="space-y-4 pt-2">
         <p class="text-sm text-[var(--text-secondary)]">
           为用户 <span class="font-semibold text-[var(--text-primary)]">{{ bindTargetUser?.username || bindTargetUser?.email }}</span> 绑定第三方账号
         </p>
-        <t-input v-model="socialSearch" size="large" placeholder="搜索第三方用户 ID（如 wechat_xxx）" />
 
-        <div v-if="socialSearch && filteredSocialAccounts.length" class="space-y-2 max-h-48 overflow-y-auto">
-          <div
-            v-for="sa in filteredSocialAccounts"
-            :key="sa.id"
-            :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedSocial?.id === sa.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
-            @click="selectedSocial = sa"
-          >
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <p class="text-sm font-semibold text-[var(--text-primary)]">{{ sa.provider }}</p>
-                <p class="mt-0.5 font-mono text-xs text-[var(--text-muted)]">{{ sa.providerUserId }}</p>
+        <!-- Mode switch -->
+        <div class="flex gap-2 rounded-2xl bg-[var(--surface-secondary)] p-1">
+          <button
+            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-all', socialBindMode === 'input' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
+            @click="switchSocialBindMode('input')"
+          >输入三方 ID</button>
+          <button
+            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-all', socialBindMode === 'qrcode' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
+            @click="switchSocialBindMode('qrcode')"
+          >扫码绑定</button>
+        </div>
+
+        <!-- Input mode -->
+        <template v-if="socialBindMode === 'input'">
+          <t-input v-model="socialSearch" size="large" placeholder="搜索第三方用户 ID（如 wechat_xxx）" />
+
+          <div v-if="socialSearch && filteredSocialAccounts.length" class="space-y-2 max-h-48 overflow-y-auto">
+            <div
+              v-for="sa in filteredSocialAccounts"
+              :key="sa.id"
+              :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedSocial?.id === sa.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+              @click="selectedSocial = sa"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-[var(--text-primary)]">{{ sa.provider }}</p>
+                  <p class="mt-0.5 font-mono text-xs text-[var(--text-muted)]">{{ sa.providerUserId }}</p>
+                </div>
+                <StatusTag v-if="selectedSocial?.id === sa.id" tone="success" label="已选择" />
+                <StatusTag v-else tone="neutral" label="未绑定" />
               </div>
-              <StatusTag v-if="selectedSocial?.id === sa.id" tone="success" label="已选择" />
-              <StatusTag v-else tone="neutral" label="未绑定" />
             </div>
           </div>
-        </div>
 
-        <div v-else-if="socialSearch && !filteredSocialAccounts.length" class="panel-muted p-4 text-center">
-          <p class="text-sm text-[var(--text-muted)]">未找到匹配的未绑定第三方账号</p>
-        </div>
+          <div v-else-if="socialSearch && !filteredSocialAccounts.length" class="panel-muted p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">未找到匹配的未绑定第三方账号</p>
+          </div>
 
-        <div v-else-if="!socialSearch" class="panel-muted p-4 text-center">
-          <p class="text-sm text-[var(--text-muted)]">输入第三方用户 ID 搜索可绑定的账号</p>
-        </div>
+          <div v-else-if="!socialSearch" class="panel-muted p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">输入第三方用户 ID 搜索可绑定的账号</p>
+          </div>
 
-        <div v-if="selectedSocial" class="rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-3">
-          <p class="text-sm text-[var(--text-primary)]">将绑定：<span class="font-semibold">{{ selectedSocial.provider }} {{ selectedSocial.providerUserId }}</span></p>
+          <div v-if="selectedSocial" class="rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-3">
+            <p class="text-sm text-[var(--text-primary)]">将绑定：<span class="font-semibold">{{ selectedSocial.provider }} {{ selectedSocial.providerUserId }}</span></p>
+          </div>
+        </template>
+
+        <!-- QR Code mode -->
+        <template v-if="socialBindMode === 'qrcode'">
+          <div v-if="enabledProviders.length === 0" class="panel-muted p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">暂无已开启的第三方平台，请先在系统设置中启用</p>
+          </div>
+
+          <div v-else class="space-y-4">
+            <p class="text-sm text-[var(--text-muted)]">选择一个已开启的第三方平台，生成授权二维码</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div
+                v-for="p in enabledProviders"
+                :key="p.name"
+                :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedQrProvider?.name === p.name ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+                @click="selectQrProvider(p)"
+              >
+                <p class="text-sm font-semibold text-[var(--text-primary)]">{{ p.name }}</p>
+                <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ p.type }}</p>
+              </div>
+            </div>
+
+            <div v-if="selectedQrProvider" class="flex flex-col items-center gap-3 rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] p-6">
+              <p class="text-sm font-semibold text-[var(--text-primary)]">{{ selectedQrProvider.name }} 授权二维码</p>
+              <p class="text-xs text-[var(--text-muted)]">
+                {{ socialBindMessage || (socialBindPolling ? '等待扫码/授权' : '用户使用手机扫码完成第三方授权绑定') }}
+              </p>
+              <div class="relative grid min-h-[220px] w-[220px] place-items-center rounded-2xl bg-white p-2">
+                <img v-if="socialBindDisplayUrl" :src="socialBindDisplayUrl" alt="第三方授权二维码" class="h-[220px] w-[220px] rounded-xl object-contain" @error="handleSocialBindQrImageError" />
+                <div v-else class="grid h-[220px] w-[220px] place-items-center rounded-xl bg-slate-50 text-sm text-slate-500">二维码生成中...</div>
+                <div
+                  v-if="socialBindStatus === 'success' || socialBindStatus === 'failed' || socialBindStatus === 'expired'"
+                  class="absolute inset-2 grid place-items-center rounded-xl bg-white/92 backdrop-blur-sm"
+                >
+                  <div class="space-y-2 text-center">
+                    <div
+                      :class="[
+                        'mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl font-bold text-white',
+                        socialBindStatus === 'success' ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'
+                      ]"
+                    >
+                      {{ socialBindStatus === 'success' ? '✓' : '!' }}
+                    </div>
+                    <p class="text-sm font-semibold text-slate-900">{{ socialBindStatus === 'success' ? '授权成功' : socialBindStatus === 'expired' ? '二维码过期' : '授权失败' }}</p>
+                  </div>
+                </div>
+              </div>
+              <p v-if="socialBindUrl" class="break-all text-center font-mono text-xs text-[var(--text-muted)] max-w-xs">{{ socialBindUrl }}</p>
+              <p v-else class="text-sm text-[var(--text-muted)]">生成中...</p>
+            </div>
+          </div>
+        </template>
+      </div>
+    </t-dialog>
+
+    <!-- Bind User Dialog (for social users) -->
+    <t-dialog
+      v-model:visible="showUserBindDialog"
+      header="绑定用户账号"
+      width="440px"
+      :confirm-btn="{ content: '确认绑定', theme: 'primary', loading: saving }"
+      :cancel-btn="{ content: '取消', variant: 'outline' }"
+      @confirm="bindToUser"
+    >
+      <div class="space-y-4 pt-2">
+        <p class="text-sm text-[var(--text-secondary)]">
+          为三方账号 <span class="font-semibold text-[var(--text-primary)]">{{ userBindTarget?.username || userBindTarget?.email }}</span> 绑定已有用户
+        </p>
+        <p class="text-xs text-[var(--text-muted)]">输入用户名、邮箱或用户 ID 后自动搜索，选择目标用户完成绑定。</p>
+        <t-input
+          v-model="userBindUsername"
+          size="large"
+          placeholder="搜索用户名 / 邮箱 / 用户 ID"
+        />
+        <div v-if="userBindUsername.trim()" class="max-h-56 space-y-2 overflow-y-auto">
+          <div
+            v-for="candidate in bindableUsers"
+            :key="candidate.id"
+            :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedBindUser?.id === candidate.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+            @click="selectedBindUser = candidate"
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <p class="truncate text-sm font-semibold text-[var(--text-primary)]">{{ candidate.username || '未设置用户名' }}</p>
+                <p class="truncate text-xs text-[var(--text-muted)]">{{ candidate.email || candidate.id }}</p>
+              </div>
+              <StatusTag :tone="selectedBindUser?.id === candidate.id ? 'success' : 'neutral'" :label="selectedBindUser?.id === candidate.id ? '已选择' : '可绑定'" />
+            </div>
+          </div>
+          <div v-if="bindableUsers.length === 0" class="panel-muted p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">未找到匹配用户</p>
+          </div>
+        </div>
+        <div v-else class="panel-muted p-4 text-center">
+          <p class="text-sm text-[var(--text-muted)]">输入关键字后显示可绑定用户</p>
         </div>
       </div>
     </t-dialog>

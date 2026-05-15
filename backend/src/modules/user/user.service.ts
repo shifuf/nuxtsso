@@ -8,10 +8,8 @@ import { UserRole, UserStatus } from '@prisma/client';
 import {
   IsBoolean,
   IsEmail,
-  IsIn,
   IsOptional,
   IsString,
-  IsUrl,
   Matches,
   MaxLength,
   MinLength,
@@ -31,10 +29,6 @@ export class CreateUserDto {
   @IsString()
   @MinLength(3)
   password!: string;
-
-  @IsOptional()
-  @IsIn(['admin', 'user'])
-  role?: 'admin' | 'user';
 }
 
 export class UpdateUserDto {
@@ -44,19 +38,8 @@ export class UpdateUserDto {
   username?: string;
 
   @IsOptional()
-  @IsUrl({
-    require_tld: false,
-    require_protocol: true,
-  })
-  avatar?: string | null;
-
-  @IsOptional()
   @IsBoolean()
   emailVerified?: boolean;
-
-  @IsOptional()
-  @IsIn(['admin', 'user'])
-  role?: 'admin' | 'user';
 }
 
 export class UpdateCurrentUserDto {
@@ -64,13 +47,6 @@ export class UpdateCurrentUserDto {
   @IsString()
   @MaxLength(50)
   username?: string;
-
-  @IsOptional()
-  @IsUrl({
-    require_tld: false,
-    require_protocol: true,
-  })
-  avatar?: string | null;
 }
 
 export class BindPhoneDto {
@@ -228,21 +204,8 @@ export class UserService {
         }
       }
 
-      // Fallback: match by provider only (covers cases where providerUserId differs from email-embedded value)
-      const unmatched = orphaned.filter(u => !boundMap.has(u.id));
-      if (unmatched.length) {
-        const providers = [...new Set(unmatched.map(u => u.registrationSource!))];
-        const accounts = await this.prismaService.socialAccount.findMany({
-          where: { provider: { in: providers } },
-          include: { user: { select: { id: true, username: true, email: true } } },
-        });
-        for (const u of unmatched) {
-          const match = accounts.find(sa => sa.provider === u.registrationSource && sa.userId !== u.id);
-          if (match) {
-            boundMap.set(u.id, { id: match.user.id, username: match.user.username, email: match.user.email });
-          }
-        }
-      }
+      // Do not fallback to provider-only matching. That can incorrectly mark
+      // unrelated users as bound when they merely use the same provider.
     }
 
     return users.map((user) => ({
@@ -251,6 +214,32 @@ export class UserService {
       socialAccounts: user.socialAccounts,
       boundToUser: boundMap.get(user.id) ?? null,
     }));
+  }
+
+  async searchBindableUsers(query?: string) {
+    const normalizedQuery = query?.trim();
+    const users = await this.prismaService.user.findMany({
+      where: {
+        role: UserRole.USER,
+        ...(normalizedQuery
+          ? {
+              OR: [
+                { email: { contains: normalizedQuery } },
+                { username: { contains: normalizedQuery } },
+                { id: { contains: normalizedQuery } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 20,
+    });
+
+    return users
+      .filter((user) => !this.isSocialPlaceholderUser(user))
+      .map((user) => this.toApiUser(user));
   }
 
   async getUserById(id: string) {
@@ -270,15 +259,7 @@ export class UserService {
       data: {
         username:
           dto.username === undefined ? undefined : dto.username.trim() || null,
-        avatar:
-          dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
         emailVerified: dto.emailVerified,
-        role:
-          dto.role === undefined
-            ? undefined
-            : dto.role === 'admin'
-              ? UserRole.ADMIN
-              : UserRole.USER,
       },
     });
 
@@ -286,7 +267,11 @@ export class UserService {
   }
 
   async updateStatus(id: string, status: 'active' | 'disabled') {
-    await this.requireUserEntity(id);
+    const existing = await this.requireUserEntity(id);
+
+    if (existing.role === UserRole.ADMIN) {
+      throw new BadRequestException('管理员账号不允许禁用');
+    }
 
     const user = await this.prismaService.user.update({
       where: { id },
@@ -315,7 +300,7 @@ export class UserService {
         email: dto.email,
         username,
         passwordHash: await bcrypt.hash(dto.password, 10),
-        role: dto.role === 'admin' ? UserRole.ADMIN : UserRole.USER,
+        role: UserRole.USER,
         emailVerified: false,
         registrationSource: 'admin',
       },
@@ -336,13 +321,59 @@ export class UserService {
   }
 
   async deleteUser(id: string) {
-    await this.requireUserEntity(id);
+    const user = await this.requireUserEntity(id);
+
+    if (user.role === UserRole.ADMIN) {
+      throw new BadRequestException('管理员账号不允许删除');
+    }
+
+    if (this.isSocialPlaceholderUser(user)) {
+      const provider = user.registrationSource ?? '';
+      const providerUserId = this.extractProviderUserIdFromSocialEmail(
+        provider,
+        user.email,
+      );
+
+      if (providerUserId) {
+        const transferredBinding = await this.prismaService.socialAccount.findUnique({
+          where: {
+            provider_providerUserId: {
+              provider,
+              providerUserId,
+            },
+          },
+        });
+
+        if (transferredBinding && transferredBinding.userId !== id) {
+          throw new BadRequestException('该三方账号已绑定到其他用户，请先解除绑定后再删除');
+        }
+      }
+    } else {
+      const boundSocialCount = await this.prismaService.socialAccount.count({
+        where: { userId: id },
+      });
+
+      if (boundSocialCount > 0) {
+        throw new BadRequestException('该用户已绑定第三方账号，请先解除绑定后再删除');
+      }
+    }
 
     await this.prismaService.user.delete({
       where: { id },
     });
 
     return { success: true };
+  }
+
+  async updateAvatar(id: string, avatar: string) {
+    await this.requireUserEntity(id);
+
+    const user = await this.prismaService.user.update({
+      where: { id },
+      data: { avatar },
+    });
+
+    return this.toApiUser(user);
   }
 
   async updateCurrentUser(id: string, dto: UpdateCurrentUserDto) {
@@ -357,8 +388,6 @@ export class UserService {
       data: {
         username:
           dto.username === undefined ? undefined : dto.username.trim() || null,
-        avatar:
-          dto.avatar === undefined ? undefined : dto.avatar?.trim() || null,
       },
     });
 
@@ -394,6 +423,29 @@ export class UserService {
     return this.toApiUser(user);
   }
 
+  private isSocialPlaceholderUser(user: {
+    email: string | null;
+    registrationSource: string | null;
+  }) {
+    const source = user.registrationSource?.toLowerCase();
+    return Boolean(
+      user.email?.endsWith('@social.local') &&
+        source &&
+        ['wechat', 'qq', 'github', 'google'].includes(source),
+    );
+  }
+
+  private extractProviderUserIdFromSocialEmail(provider: string, email: string | null) {
+    const prefix = `${provider}_`;
+    const suffix = '@social.local';
+
+    if (!email?.startsWith(prefix) || !email.endsWith(suffix)) {
+      return null;
+    }
+
+    return email.slice(prefix.length, -suffix.length);
+  }
+
   async bindSocialAccount(userId: string, provider: string, providerUserId: string, profile?: string) {
     await this.requireUserEntity(userId);
 
@@ -412,12 +464,20 @@ export class UserService {
     if (!existingByInput) {
       const prefix = `${provider}_`;
       const suffix = '@social.local';
-      const socialUser = await this.prismaService.user.findFirst({
-        where: {
-          registrationSource: provider,
-          email: { startsWith: prefix, endsWith: suffix },
-        },
-      });
+      const socialUser =
+        (await this.prismaService.user.findFirst({
+          where: {
+            registrationSource: provider,
+            email: `${prefix}${providerUserId}${suffix}`,
+          },
+        })) ??
+        (await this.prismaService.user.findFirst({
+          where: {
+            registrationSource: provider,
+            email: { startsWith: prefix, endsWith: suffix },
+          },
+          orderBy: { createdAt: 'desc' },
+        }));
       if (socialUser?.email) {
         const extracted = socialUser.email.slice(prefix.length, -suffix.length);
         if (extracted) realProviderUserId = extracted;
@@ -435,6 +495,19 @@ export class UserService {
     });
 
     if (existing && existing.userId !== userId) {
+      const owner = await this.prismaService.user.findUnique({
+        where: { id: existing.userId },
+      });
+
+      if (owner && this.isSocialPlaceholderUser(owner)) {
+        await this.prismaService.socialAccount.update({
+          where: { id: existing.id },
+          data: { userId },
+        });
+
+        return { success: true, message: '第三方注册账号已绑定到目标用户' };
+      }
+
       throw new BadRequestException('该第三方账号已绑定到其他用户，请先解绑');
     }
 
@@ -480,20 +553,71 @@ export class UserService {
     const accounts = await this.prismaService.socialAccount.findMany({
       include: {
         user: {
-          select: { id: true, username: true, email: true },
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            registrationSource: true,
+          },
         },
       },
       orderBy: [{ provider: 'asc' }, { providerUserId: 'asc' }],
     });
 
-    return accounts.map((a) => ({
+    const rows = accounts.map((a) => ({
       id: a.id,
       provider: a.provider,
       providerUserId: a.providerUserId,
       userId: a.userId,
       boundUsername: a.user.username,
       boundEmail: a.user.email,
+      available: this.isSocialPlaceholderUser(a.user),
     }));
+
+    const existingKeys = new Set(
+      rows.map((row) => `${row.provider}:${row.providerUserId}`),
+    );
+    const socialUsers = await this.prismaService.user.findMany({
+      where: {
+        email: { endsWith: '@social.local' },
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        registrationSource: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    for (const user of socialUsers) {
+      const provider = user.registrationSource ?? '';
+      const providerUserId = this.extractProviderUserIdFromSocialEmail(
+        provider,
+        user.email,
+      );
+
+      if (!provider || !providerUserId) {
+        continue;
+      }
+
+      const key = `${provider}:${providerUserId}`;
+      if (existingKeys.has(key)) {
+        continue;
+      }
+
+      rows.push({
+        id: `synthetic:${user.id}`,
+        provider,
+        providerUserId,
+        userId: user.id,
+        boundUsername: user.username,
+        boundEmail: user.email,
+        available: true,
+      });
+    }
+
+    return rows;
   }
 
   async assignSocialAccount(userId: string, socialAccountId: string) {
@@ -515,10 +639,18 @@ export class UserService {
   }
 
   async transferSocialBindings(sourceUserId: string, targetUsername: string) {
-    await this.requireUserEntity(sourceUserId);
+    const sourceUser = await this.requireUserEntity(sourceUserId);
+    const normalizedTarget = targetUsername.trim();
 
     const targetUser = await this.prismaService.user.findFirst({
-      where: { username: targetUsername },
+      where: {
+        role: UserRole.USER,
+        OR: [
+          { username: normalizedTarget },
+          { email: normalizedTarget },
+          { id: normalizedTarget },
+        ],
+      },
     });
     if (!targetUser) throw new NotFoundException('目标用户不存在');
 
@@ -531,7 +663,55 @@ export class UserService {
     });
 
     if (!sourceBindings.length) {
-      throw new BadRequestException('该用户没有第三方绑定可转移');
+      const provider = sourceUser.registrationSource ?? '';
+      const providerUserId = this.extractProviderUserIdFromSocialEmail(
+        provider,
+        sourceUser.email,
+      );
+
+      if (!provider || !providerUserId) {
+        throw new BadRequestException('该用户没有第三方绑定可转移');
+      }
+
+      const conflict = await this.prismaService.socialAccount.findFirst({
+        where: { userId: targetUser.id, provider },
+      });
+
+      if (conflict) {
+        throw new BadRequestException(`目标用户已绑定了 ${provider}，请先解绑`);
+      }
+
+      const existing = await this.prismaService.socialAccount.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider,
+            providerUserId,
+          },
+        },
+      });
+
+      if (existing && existing.userId !== sourceUserId) {
+        throw new BadRequestException('该第三方账号已绑定到其他用户，请先解绑');
+      }
+
+      if (existing) {
+        await this.prismaService.socialAccount.update({
+          where: { id: existing.id },
+          data: { userId: targetUser.id },
+        });
+      } else {
+        await this.prismaService.socialAccount.create({
+          data: {
+            userId: targetUser.id,
+            provider,
+            providerUserId,
+            accessToken: '',
+            profile: '{}',
+          },
+        });
+      }
+
+      return { success: true, transferred: 1 };
     }
 
     // Check target has no conflict

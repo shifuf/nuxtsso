@@ -39,6 +39,8 @@ export interface ApplicationItem {
   scopes: string[];
   allowRegistration: boolean;
   enabledSocialProviders: string[];
+  ownerId: string | null;
+  owner?: { id: string; username: string | null; email: string | null } | null;
   status: 'active' | 'disabled';
   createdAt: string;
   updatedAt: string;
@@ -162,6 +164,7 @@ export interface SocialAccountItem {
   userId: string;
   boundUsername: string | null;
   boundEmail: string | null;
+  available: boolean;
 }
 
 export interface AccountSession {
@@ -172,6 +175,7 @@ export interface AccountSession {
   createdAt: string;
   expiresAt: string;
   refreshExpiresAt: string | null;
+  userAgent: string | null;
   current: boolean;
 }
 

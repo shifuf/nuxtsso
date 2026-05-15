@@ -6,7 +6,6 @@ import { useAuthStore } from '../stores/auth'
 import { consoleNavItems } from '../utils/console'
 import { useSidebarCollapsed } from '../composables/useSidebarCollapsed'
 import BrandMark from '../components/BrandMark.vue'
-import StatusTag from '../components/StatusTag.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
 
 const route = useRoute()
@@ -90,19 +89,6 @@ onMounted(() => { void bootstrapSession() })
         <t-icon name="chevron-right" size="14px" />
       </button>
 
-      <!-- Status -->
-      <div class="sidebar-section">
-        <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">服务状态</p>
-              <p class="mt-2 text-sm font-semibold text-slate-100">OIDC / OAuth2 / 审计在线</p>
-            </div>
-            <span class="tag tag-success">就绪</span>
-          </div>
-        </div>
-      </div>
-
       <!-- Navigation -->
       <nav class="sidebar-nav">
         <div class="sidebar-section-title px-3 pb-3">控制台</div>
@@ -159,18 +145,13 @@ onMounted(() => { void bootstrapSession() })
           </button>
 
           <div class="min-w-0">
-            <p class="eyebrow">集中认证控制台</p>
-            <h1 class="mt-1 truncate text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+            <h1 class="truncate text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
               {{ route.meta.title }}
             </h1>
-            <p class="mt-1 hidden text-sm text-[var(--text-muted)] md:block">
-              {{ route.meta.description }}
-            </p>
           </div>
         </div>
 
         <div class="page-actions">
-          <StatusTag tone="success" label="Service Active" />
           <ThemeSwitch />
         </div>
       </header>

@@ -1,0 +1,31 @@
+services:
+  sso:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nuxtsso:latest
+    container_name: nuxtsso
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      NODE_ENV: production
+      PORT: 8086
+      DATABASE_URL: file:/app/data/prod.db
+      FRONTEND_DIST_DIR: /app/frontend-dist
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8086}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:8086}
+      OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-http://localhost:8086}
+      JWT_ACCESS_TOKEN_EXPIRES_IN: ${JWT_ACCESS_TOKEN_EXPIRES_IN:-3600}
+      JWT_REFRESH_TOKEN_EXPIRES_IN: ${JWT_REFRESH_TOKEN_EXPIRES_IN:-604800}
+      JWT_KEY_ID: ${JWT_KEY_ID:-sso-prod-key}
+      ENABLE_DEBUG_EMAIL_CODE: ${ENABLE_DEBUG_EMAIL_CODE:-false}
+      BACKUP_DIR: /app/backend/backups
+      AUTO_BACKUP_ENABLED: ${AUTO_BACKUP_ENABLED:-false}
+      AUTO_BACKUP_INTERVAL_HOURS: ${AUTO_BACKUP_INTERVAL_HOURS:-24}
+      AUTO_BACKUP_RETENTION_COUNT: ${AUTO_BACKUP_RETENTION_COUNT:-7}
+      AUTO_BACKUP_COMPRESS: ${AUTO_BACKUP_COMPRESS:-true}
+    volumes:
+      - ./docker-data/data:/app/data
+      - ./docker-data/uploads:/app/backend/uploads
+      - ./docker-data/backups:/app/backend/backups

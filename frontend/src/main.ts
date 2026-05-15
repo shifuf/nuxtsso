@@ -6,6 +6,16 @@ import App from './App.vue';
 import router from './router';
 import './styles/main.scss';
 
+// Patch: make scroll-blocking events passive to avoid Chrome Violation warnings
+const PASSIVE_EVENTS = new Set(['touchstart', 'touchmove', 'wheel', 'mousewheel']);
+const origAddEventListener = EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener = function (type: string, listener: any, options?: any) {
+  if (PASSIVE_EVENTS.has(type) && (typeof options === 'boolean' || !options?.passive)) {
+    options = typeof options === 'object' ? { ...options, passive: true } : { passive: true };
+  }
+  return origAddEventListener.call(this, type, listener, options);
+};
+
 const app = createApp(App);
 const pinia = createPinia();
 

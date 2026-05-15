@@ -1,2 +1,13 @@
 .ace-tool/
 test/
+docker-data/
+
+**/dist/
+**/node_modules/
+**/uploads/
+**/backups/
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite-*
+**/*.log

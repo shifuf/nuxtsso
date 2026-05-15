@@ -14,7 +14,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../database/prisma.service';
 import {
@@ -110,6 +110,12 @@ export class ApplicationService {
     scopes: string;
     allowRegistration: boolean;
     enabledSocialProviders: string | null;
+    ownerId?: string | null;
+    owner?: {
+      id: string;
+      username: string | null;
+      email: string | null;
+    } | null;
     status: ApplicationStatus;
     createdAt: Date;
     updatedAt: Date;
@@ -125,6 +131,8 @@ export class ApplicationService {
       enabledSocialProviders: application.enabledSocialProviders
         ? parseStringArray(application.enabledSocialProviders)
         : [],
+      ownerId: application.ownerId ?? null,
+      owner: application.owner ?? null,
       status: application.status.toLowerCase(),
       createdAt: application.createdAt,
       updatedAt: application.updatedAt,
@@ -139,8 +147,46 @@ export class ApplicationService {
     return `secret_${randomBytes(18).toString('hex')}`;
   }
 
+  private getCipherKey(): Buffer {
+    const passphrase = process.env.SECRET_ENCRYPTION_KEY ?? 'nexus-sso-default-secret-key-2024';
+    return scryptSync(passphrase, 'nexus-sso-salt', 32);
+  }
+
+  private encryptSecret(plain: string): string {
+    const key = this.getCipherKey();
+    const iv = randomBytes(16);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+  }
+
+  private decryptSecret(encrypted: string): string {
+    const [ivHex, tagHex, dataHex] = encrypted.split(':');
+    const key = this.getCipherKey();
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return decipher.update(dataHex, 'hex', 'utf8') + decipher.final('utf8');
+  }
+
   async listApplications() {
     const applications = await this.prismaService.application.findMany({
+      include: {
+        owner: {
+          select: { id: true, username: true, email: true },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return applications.map((application) => this.toApiApplication(application));
+  }
+
+  async listUserApplications(userId: string) {
+    const applications = await this.prismaService.application.findMany({
+      where: { ownerId: userId },
       orderBy: {
         createdAt: 'desc',
       },
@@ -174,6 +220,10 @@ export class ApplicationService {
   }
 
   async createApplication(dto: CreateApplicationDto) {
+    return this.createApplicationForOwner(dto);
+  }
+
+  async createApplicationForOwner(dto: CreateApplicationDto, ownerId?: string | null) {
     const clientSecret = this.buildClientSecret();
     const application = await this.prismaService.application.create({
       data: {
@@ -181,9 +231,12 @@ export class ApplicationService {
         description: dto.description,
         clientId: this.buildClientId(),
         clientSecretHash: await bcrypt.hash(clientSecret, 10),
+        encryptedClientSecret: this.encryptSecret(clientSecret),
         redirectUris: toJsonString(uniqueStringArray(dto.redirectUris)),
         scopes: toJsonString(uniqueStringArray(dto.scopes)),
         allowRegistration: dto.allowRegistration ?? true,
+        ownerId: ownerId ?? null,
+        status: ownerId ? ApplicationStatus.DISABLED : ApplicationStatus.ACTIVE,
       },
     });
 
@@ -261,6 +314,7 @@ export class ApplicationService {
       where: { id },
       data: {
         clientSecretHash: await bcrypt.hash(clientSecret, 10),
+        encryptedClientSecret: this.encryptSecret(clientSecret),
       },
     });
 
@@ -276,6 +330,25 @@ export class ApplicationService {
     return {
       clientId: application.clientId,
       clientSecret,
+    };
+  }
+
+  async getApplicationSecret(id: string) {
+    const application = await this.prismaService.application.findUnique({
+      where: { id },
+    });
+
+    if (!application) {
+      throw new NotFoundException('应用不存在');
+    }
+
+    if (!application.encryptedClientSecret) {
+      return { clientSecret: null, clientId: application.clientId };
+    }
+
+    return {
+      clientId: application.clientId,
+      clientSecret: this.decryptSecret(application.encryptedClientSecret),
     };
   }
 

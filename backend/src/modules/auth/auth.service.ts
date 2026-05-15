@@ -165,6 +165,7 @@ interface IssueTokensOptions {
   clientId?: string | null;
   includeIdToken?: boolean;
   nonce?: string | null;
+  userAgent?: string | null;
 }
 
 export interface AccountSessionInfo {
@@ -173,6 +174,7 @@ export interface AccountSessionInfo {
   clientName: string | null;
   scopes: string[];
   createdAt: string;
+  userAgent: string | null;
   expiresAt: string;
   refreshExpiresAt: string | null;
   current: boolean;
@@ -269,6 +271,7 @@ export class AuthService {
       createdAt: Date;
       expiresAt: Date;
       refreshExpiresAt: Date | null;
+      userAgent?: string | null;
       client?: {
         name: string;
       } | null;
@@ -283,6 +286,7 @@ export class AuthService {
       createdAt: session.createdAt.toISOString(),
       expiresAt: session.expiresAt.toISOString(),
       refreshExpiresAt: session.refreshExpiresAt?.toISOString() ?? null,
+      userAgent: session.userAgent ?? null,
       current: session.accessToken === (currentAccessToken ?? null),
     };
   }
@@ -325,6 +329,7 @@ export class AuthService {
         scopes: toJsonString(scopes),
         expiresAt: new Date(Date.now() + accessTokenExpiresIn * 1000),
         refreshExpiresAt: new Date(Date.now() + refreshTokenExpiresIn * 1000),
+        userAgent: options.userAgent ?? null,
       },
     });
 
@@ -454,9 +459,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, meta: RequestMeta) {
+    const identifier = dto.username.trim();
+    if (!identifier) {
+      throw new UnauthorizedException('用户名或密码错误');
+    }
+
     const user = await this.prismaService.user.findFirst({
       where: {
-        OR: [{ email: dto.username }, { username: dto.username }],
+        OR: [{ email: identifier }, { username: identifier }],
       },
     });
 
@@ -480,6 +490,7 @@ export class AuthService {
     const tokens = await this.issueTokensForUser({
       user,
       scopes: this.buildDefaultScopes(),
+      userAgent: meta.userAgent,
     });
 
     await this.auditService.create({
@@ -523,6 +534,7 @@ export class AuthService {
       user,
       scopes: this.buildDefaultScopes(),
       clientId: dto.clientId ?? null,
+      userAgent: meta.userAgent,
     });
 
     await this.auditService.create({
@@ -587,6 +599,7 @@ export class AuthService {
       user,
       scopes: this.buildDefaultScopes(),
       clientId: dto.clientId,
+      userAgent: meta.userAgent,
     });
 
     await this.auditService.create({
@@ -656,6 +669,7 @@ export class AuthService {
     const tokens = await this.issueTokensForUser({
       user,
       scopes: this.buildDefaultScopes(),
+      userAgent: meta.userAgent,
     });
 
     await this.auditService.create({
