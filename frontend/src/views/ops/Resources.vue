@@ -1,4 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import { NButton, NInput } from 'naive-ui'
+import Icon from '../../components/Icon.vue'
+
 const resourceGroups = [
   { id: 'RG-402', name: 'Global_Auth_Tier_1', instances: 12, region: 'us-east', owner: 'ops_root', created: '2026-01-12' },
   { id: 'RG-881', name: 'Identity_Validation_Service', instances: 8, region: 'eu-west', owner: 'ops_root', created: '2026-02-05' },
@@ -15,17 +18,17 @@ const resourceGroups = [
         <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Total active resource groups: 04</p>
       </div>
       <div class="flex gap-2">
-        <t-input placeholder="Filter by Group ID or Name..." class="!w-64" size="small" />
-        <t-button theme="primary">Provision New Group</t-button>
+        <NInput placeholder="Filter by Group ID or Name..." class="!w-64" size="small" />
+        <NButton type="primary">Provision New Group</NButton>
       </div>
     </div>
 
     <div class="grid grid-cols-1 gap-4">
       <div v-for="rg in resourceGroups" :key="rg.id" class="l-box flex items-center p-4 hover:border-slate-300 transition-all cursor-pointer">
         <div class="h-10 w-10 bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-400 mr-6">
-          <t-icon name="server" size="20px" />
+          <Icon name="server" size="20px" />
         </div>
-        
+
         <div class="flex-1 grid grid-cols-5 gap-8">
           <div>
             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Group Identifier</p>
@@ -50,8 +53,8 @@ const resourceGroups = [
         </div>
 
         <div class="flex gap-2 ml-8">
-          <t-button variant="outline" shape="square" size="small"><t-icon name="edit" /></t-button>
-          <t-button variant="outline" shape="square" size="small"><t-icon name="more" /></t-button>
+          <NButton size="small" circle><Icon name="edit" /></NButton>
+          <NButton size="small" circle><Icon name="more" /></NButton>
         </div>
       </div>
     </div>
@@ -100,7 +103,7 @@ const resourceGroups = [
             <span class="data-mono text-slate-400 text-[10px] uppercase">Complete: 14:{{ j }}2:05</span>
           </div>
           <div class="p-4 flex justify-center">
-            <t-button variant="text" size="small" class="!text-[10px] !font-black !text-slate-400 uppercase tracking-[0.1em]">View historical scale events</t-button>
+            <NButton text size="small" class="!text-[10px] !font-black !text-slate-400 uppercase tracking-[0.1em]">View historical scale events</NButton>
           </div>
         </div>
       </div>

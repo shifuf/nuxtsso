@@ -1,5 +1,8 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { reactive } from 'vue'
+import { NButton, NInput, NInputNumber, NSwitch } from 'naive-ui'
+import Icon from '../../components/Icon.vue'
+
 const config = reactive({
   clusterName: 'Lattice_Ops_Core_01',
   retentionPeriod: 30,
@@ -23,11 +26,11 @@ const config = reactive({
           <div class="col-span-2 space-y-6">
             <div>
               <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Cluster Primary Name</label>
-              <t-input v-model="config.clusterName" />
+              <NInput v-model:value="config.clusterName" />
             </div>
             <div>
               <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Audit Log Retention (Days)</label>
-              <t-input-number v-model="config.retentionPeriod" class="!w-full" />
+              <NInputNumber v-model:value="config.retentionPeriod" class="!w-full" />
             </div>
           </div>
         </div>
@@ -42,35 +45,35 @@ const config = reactive({
           <div class="col-span-2 space-y-6">
             <div>
               <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Internal API Endpoint</label>
-              <t-input v-model="config.apiEndpoint" />
+              <NInput v-model:value="config.apiEndpoint" />
             </div>
             <div class="flex items-center justify-between p-4 border border-slate-100 bg-slate-50/50">
               <div>
                 <p class="text-xs font-bold text-slate-700 uppercase tracking-tight">Enable Debug Telemetry</p>
                 <p class="text-[9px] text-slate-400 font-bold uppercase">Verbose logging for diagnostic procedures</p>
               </div>
-              <t-switch v-model="config.debugMode" />
+              <NSwitch v-model:value="config.debugMode" />
             </div>
           </div>
         </div>
 
         <div class="mt-12 pt-8 border-t border-slate-100 flex justify-end gap-3">
-          <t-button variant="outline">Reset to Defaults</t-button>
-          <t-button theme="primary">Commit Changes</t-button>
+          <NButton>Reset to Defaults</NButton>
+          <NButton type="primary">Commit Changes</NButton>
         </div>
       </div>
     </div>
-    
+
     <div class="p-6 border border-rose-100 bg-rose-50/30">
       <div class="flex items-center gap-4">
         <div class="h-10 w-10 rounded-none bg-rose-100 flex items-center justify-center text-rose-600 border border-rose-200">
-          <t-icon name="error-circle-filled" size="20px" />
+          <Icon name="error-circle-filled" size="20px" />
         </div>
         <div class="flex-1">
           <h5 class="text-xs font-black text-rose-800 uppercase tracking-widest">Advanced Zone: Destructive Actions</h5>
           <p class="text-[10px] text-rose-600 font-bold uppercase mt-1">Purging the cluster registry will result in immediate termination of all active sessions.</p>
         </div>
-        <t-button theme="danger" variant="outline">Factory Purge</t-button>
+        <NButton type="error" ghost>Factory Purge</NButton>
       </div>
     </div>
   </div>

@@ -1,4 +1,6 @@
 ﻿<script setup lang="ts">
+import Icon from '../../components/Icon.vue'
+
 const nodeMetrics = [
   { label: 'Compute Power', value: '42.8 TFlops', usage: 64 },
   { label: 'Memory Commit', value: '1.2 PB', usage: 42 },
@@ -21,7 +23,7 @@ const computeInstances = [
       <div v-for="m in nodeMetrics" :key="m.label" class="data-cell group">
         <div class="flex justify-between items-start mb-4">
           <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">{{ m.label }}</span>
-          <t-icon name="chart-line" size="14px" class="text-gray-200 group-hover:text-[#60a5fa] transition-colors" />
+          <Icon name="chart-line" size="14px" class="text-gray-200 group-hover:text-[#60a5fa] transition-colors" />
         </div>
         <div class="text-xl font-black text-gray-900 tracking-tighter mb-4">{{ m.value }}</div>
         <div class="h-0.5 w-full bg-gray-50 overflow-hidden">
@@ -97,7 +99,7 @@ const computeInstances = [
                   <p class="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Level: Info / Source: External</p>
                 </div>
                 <button class="h-5 w-5 bg-white border border-blue-100 flex items-center justify-center text-[#60a5fa]">
-                  <t-icon name="chevron-right" size="14px" />
+                  <Icon name="chevron-right" size="14px" />
                 </button>
               </div>
             </div>
@@ -107,7 +109,7 @@ const computeInstances = [
         <div class="a-panel bg-[#60a5fa] border-none p-5 text-white">
           <div class="flex items-center gap-3 mb-6">
             <div class="h-8 w-8 bg-white/20 flex items-center justify-center">
-              <t-icon name="shield-check" size="20px" />
+              <Icon name="shield-check" size="20px" />
             </div>
             <h3 class="text-xs font-black uppercase tracking-[0.2em]">Global Firewall</h3>
           </div>

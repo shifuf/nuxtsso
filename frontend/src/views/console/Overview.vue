@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { NButton } from 'naive-ui'
 import { adminApi } from '../../api/admin'
 import type { ApplicationItem, AuditLogItem, AuditSummary, SocialProviderConfig } from '../../types/api'
 import { formatAuditAction, formatAuditCategory, formatCount, formatDateTime } from '../../utils/console'
@@ -59,8 +60,8 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
       title="运营概览"
     >
       <template #actions>
-        <t-button variant="outline" @click="loadData">刷新</t-button>
-        <t-button theme="primary" @click="$router.push('/user/applications')">新建应用</t-button>
+        <NButton @click="loadData">刷新</NButton>
+        <NButton type="primary" @click="$router.push('/user/applications')">新建应用</NButton>
       </template>
     </PageHeader>
 

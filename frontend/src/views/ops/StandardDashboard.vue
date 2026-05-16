@@ -1,4 +1,6 @@
 ﻿<script setup lang="ts">
+import Icon from '../../components/Icon.vue'
+
 const highlights = [
   { label: 'Active Clusters', value: '12', trend: '+2', icon: 'dashboard', featured: true },
   { label: 'Network Latency', value: '14ms', trend: '-2ms', icon: 'internet' },
@@ -24,7 +26,7 @@ const recentActivities = [
           <div class="flex justify-between items-start mb-8">
             <div :class="h.featured ? 'bg-gradient-to-br from-[#0052FF] to-[#4D7CFF]' : 'bg-slate-100'"
               class="h-14 w-14 rounded-2xl flex items-center justify-center transition-transform group-hover:rotate-12 duration-500">
-              <t-icon :name="h.icon" size="24px" :class="h.featured ? 'text-white' : 'text-[#0052FF]'" />
+              <Icon :name="h.icon" size="24px" :class="h.featured ? 'text-white' : 'text-[#0052FF]'" />
             </div>
             <span :class="h.featured ? 'text-[#0052FF]' : 'text-emerald-500'" class="text-[10px] font-black uppercase tracking-widest">{{ h.trend }}</span>
           </div>
@@ -61,7 +63,7 @@ const recentActivities = [
                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{{ act.time }}</p>
               </div>
               <button class="h-10 w-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 hover:text-[#0052FF] transition-all">
-                <t-icon name="chevron-right" size="18px" />
+                <Icon name="chevron-right" size="18px" />
               </button>
             </div>
           </div>
@@ -87,7 +89,7 @@ const recentActivities = [
             </p>
             
             <button class="btn-accent w-full flex items-center justify-center gap-3">
-              <t-icon name="shield-check" size="18px" />
+              <Icon name="shield-check" size="18px" />
               <span>Full Audit Run</span>
             </button>
           </div>

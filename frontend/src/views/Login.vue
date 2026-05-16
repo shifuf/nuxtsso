@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { NButton, NModal } from 'naive-ui'
+import { MessagePlugin } from '../utils/ui'
 import { authApi } from '../api/auth'
 import { oauthApi } from '../api/oauth'
 import { useAuthStore } from '../stores/auth'
 import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../utils/qrcode'
 import type { AuthorizeContext } from '../types/api'
 import StatusTag from '../components/StatusTag.vue'
+import Icon from '../components/Icon.vue'
 
 type AuthMode = 'password' | 'email' | 'register' | 'reset' | 'authorize' | 'restricted'
 
@@ -345,7 +347,7 @@ function handleSecondaryAction() {
         <span class="login-shape login-shape--two"></span>
         <span class="login-shape login-shape--three"></span>
         <div class="login-visual__center">
-          <div class="login-visual__icon"><t-icon name="secured" size="42px" /></div>
+          <div class="login-visual__icon"><Icon name="secured" size="42px" /></div>
           <h2>一证通行</h2>
           <p>安全、便捷的统一身份认证平台</p>
           <div class="login-dots"><span></span><span></span><span></span></div>
@@ -599,11 +601,11 @@ function handleSecondaryAction() {
 
     <div class="lumina-copyright">© 2026 一证通行</div>
 
-    <t-dialog
-      v-model:visible="socialQrVisible"
-      :header="`${providerLabel(socialQrProvider)} 扫码登录`"
-      width="430px"
-      :footer="false"
+    <NModal
+      v-model:show="socialQrVisible"
+      preset="card"
+      :title="`${providerLabel(socialQrProvider)} 扫码登录`"
+      style="width: 430px"
       @close="resetSocialQr"
     >
       <div class="space-y-4 pt-2 text-center">
@@ -637,11 +639,11 @@ function handleSecondaryAction() {
         <p class="text-sm font-semibold text-[var(--text-primary)]">{{ socialQrMessage }}</p>
         <p v-if="socialQrStatus === 'pending'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，本页面会自动监听结果。</p>
         <div v-if="socialQrStatus === 'failed' || socialQrStatus === 'expired'" class="action-row justify-center">
-          <t-button variant="outline" class="lumina-outline-btn" @click="socialQrVisible = false; resetSocialQr()">关闭</t-button>
-          <t-button theme="primary" class="lumina-primary-btn" @click="handleSocialLogin(socialQrProvider)">重新生成</t-button>
+          <NButton class="lumina-outline-btn" @click="socialQrVisible = false; resetSocialQr()">关闭</NButton>
+          <NButton type="primary" class="lumina-primary-btn" @click="handleSocialLogin(socialQrProvider)">重新生成</NButton>
         </div>
       </div>
-    </t-dialog>
+    </NModal>
   </div>
 </template>
 
@@ -1291,6 +1293,26 @@ function handleSecondaryAction() {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@media (max-width: 768px) {
+  .lumina-login {
+    width: 100%;
+    padding: 4px;
+  }
+
+  .login-split-card {
+    grid-template-columns: 1fr;
+    border-radius: 16px;
+  }
+
+  .login-visual {
+    display: none;
+  }
+
+  .login-split-card .lumina-card {
+    padding: 28px 22px;
   }
 }
 

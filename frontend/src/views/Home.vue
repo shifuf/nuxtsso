@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/auth'
 import { useTheme } from '../composables/useTheme'
 import { authApi } from '../api/auth'
 import type { SiteConfig } from '../types/api'
+import Icon from '../components/Icon.vue'
 
 type PortalTab = 'home' | 'oauth' | 'contact'
 
@@ -111,7 +112,7 @@ function toggleTheme() {
   <main class="portal-shell">
     <header class="portal-topbar">
       <button class="portal-brand" type="button" @click="activeTab = 'home'">
-        <span class="portal-brand__mark"><t-icon name="secured" size="20px" /></span>
+        <span class="portal-brand__mark"><Icon name="secured" size="20px" /></span>
         <span>{{ siteConfig.siteName }}</span>
       </button>
 
@@ -129,7 +130,7 @@ function toggleTheme() {
 
       <div class="portal-actions">
         <button class="icon-action" type="button" aria-label="切换主题" @click="toggleTheme">
-          <t-icon :name="resolvedTheme === 'dark' ? 'sunny' : 'moon'" size="18px" />
+          <Icon :name="resolvedTheme === 'dark' ? 'sunny' : 'moon'" size="18px" />
         </button>
         <button class="text-action" type="button" @click="router.push(entryPath)">
           {{ entryLabel }}
@@ -164,7 +165,7 @@ function toggleTheme() {
         </div>
         <div class="feature-grid">
           <article v-for="item in features" :key="item.title" :class="['feature-card', `feature-card--${item.tone}`]">
-            <span><t-icon :name="item.icon" size="26px" /></span>
+            <span><Icon :name="item.icon" size="26px" /></span>
             <h3>{{ item.title }}</h3>
             <p>{{ item.desc }}</p>
           </article>
@@ -179,7 +180,7 @@ function toggleTheme() {
         <div class="usage-grid">
           <article v-for="(item, index) in usageSteps" :key="item.title" class="usage-card">
             <strong>{{ index + 1 }}</strong>
-            <span><t-icon :name="item.icon" size="30px" /></span>
+            <span><Icon :name="item.icon" size="30px" /></span>
             <h3>{{ item.title }}</h3>
             <p>{{ item.desc }}</p>
           </article>
@@ -328,8 +329,19 @@ function toggleTheme() {
 <style scoped>
 .portal-shell {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-page);
   color: var(--text-primary);
+}
+
+.portal-shell > .portal-topbar {
+  flex-shrink: 0;
+}
+
+.portal-shell > .portal-footer {
+  flex-shrink: 0;
+  margin-top: auto;
 }
 
 .portal-topbar {
@@ -1003,15 +1015,25 @@ function toggleTheme() {
 
 @media (max-width: 900px) {
   .portal-topbar {
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 14px 18px;
+    grid-template-columns: auto 1fr auto;
+    gap: 12px;
+    padding: 10px 16px;
+    min-height: 56px;
   }
 
-  .portal-nav,
+  .portal-nav {
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .portal-nav button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
   .portal-actions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 10px;
   }
 
   .endpoint-item,
@@ -1044,5 +1066,132 @@ function toggleTheme() {
     height: 190px;
   }
 
+}
+
+@media (max-width: 640px) {
+  .portal-topbar {
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto;
+    gap: 8px 12px;
+    padding: 10px 14px;
+  }
+
+  .portal-brand {
+    grid-row: 1;
+    grid-column: 1;
+    font-size: 14px;
+  }
+
+  .portal-actions {
+    grid-row: 1;
+    grid-column: 2;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+
+  .portal-nav {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    gap: 2px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+
+  .portal-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .portal-nav button {
+    padding: 6px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .feature-section,
+  .usage-section {
+    padding: 56px 18px;
+  }
+
+  .section-heading {
+    margin-bottom: 36px;
+  }
+
+  .section-heading h2 {
+    font-size: 28px;
+  }
+
+  .portal-hero {
+    min-height: 380px;
+    padding: 56px 18px 80px;
+  }
+
+  .portal-hero h1 {
+    font-size: 38px;
+  }
+
+  .portal-hero p {
+    font-size: 15px;
+    margin-top: 14px;
+  }
+
+  .portal-hero__actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-top: 26px;
+  }
+
+  .primary-action,
+  .secondary-action {
+    width: 100%;
+  }
+
+  .doc-page {
+    width: min(100%, calc(100% - 24px));
+    padding: 28px 0 60px;
+  }
+
+  .doc-heading {
+    padding: 0 0 28px;
+  }
+
+  .doc-heading h1 {
+    font-size: 28px;
+  }
+
+  .doc-heading p {
+    font-size: 14px;
+  }
+
+  .doc-card {
+    padding: 18px;
+    margin-top: 18px;
+    border-radius: 14px;
+  }
+
+  .doc-card h2 {
+    font-size: 18px;
+    margin-bottom: 14px;
+  }
+
+  .doc-card pre {
+    font-size: 12px;
+    padding: 12px;
+  }
+
+  .feature-card,
+  .step-card {
+    padding: 24px 20px;
+  }
+
+  .portal-footer {
+    padding: 20px 16px;
+  }
+
+  .portal-footer p {
+    font-size: 12px;
+  }
 }
 </style>

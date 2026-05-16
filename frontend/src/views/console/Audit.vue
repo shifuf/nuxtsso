@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { NButton, NInput, NSelect } from 'naive-ui'
+import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { AuditLogItem, AuditSummary, AuditCategory } from '../../types/api'
 import { formatAuditAction, formatAuditCategory, formatCount, formatDateTime } from '../../utils/console'
@@ -112,8 +113,8 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
       title="审计日志"
     >
       <template #actions>
-        <t-button variant="outline" @click="search">刷新</t-button>
-        <t-button theme="primary" @click="search">查询</t-button>
+        <NButton @click="search">刷新</NButton>
+        <NButton type="primary" @click="search">查询</NButton>
       </template>
     </PageHeader>
 
@@ -150,32 +151,32 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
 
     <section class="panel-card p-6">
       <div class="grid gap-4 xl:grid-cols-[1fr,1fr,1fr,auto,auto]">
-        <t-select
-          v-model="filters.category"
+        <NSelect
+          v-model:value="filters.category"
           size="large"
           :options="categoryOptions"
         />
-        <t-input v-model="filters.action" size="large" placeholder="动作关键字" @keyup.enter="search" />
-        <t-input v-model="filters.q" size="large" placeholder="邮箱 / 应用 / IP 关键字" @keyup.enter="search" />
-        <t-select
-          v-model="filters.limit"
+        <NInput v-model:value="filters.action" size="large" placeholder="动作关键字" @keyup.enter="search" />
+        <NInput v-model:value="filters.q" size="large" placeholder="邮箱 / 应用 / IP 关键字" @keyup.enter="search" />
+        <NSelect
+          v-model:value="filters.limit"
           size="large"
           :options="limitOptions"
         />
-        <t-select
-          v-model="filters.days"
+        <NSelect
+          v-model:value="filters.days"
           size="large"
           :options="daysOptions"
         />
       </div>
 
       <div class="mt-4 flex flex-wrap items-center justify-end gap-3">
-        <t-select
-          v-model="clearOlderThanDays"
+        <NSelect
+          v-model:value="clearOlderThanDays"
           class="w-44"
           :options="clearOptions"
         />
-        <t-button theme="danger" variant="outline" @click="clearLogs">清理日志</t-button>
+        <NButton type="error" ghost @click="clearLogs">清理日志</NButton>
       </div>
 
       <div class="mt-5">

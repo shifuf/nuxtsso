@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { NButton, NInput, NSelect, NModal, NSwitch } from 'naive-ui'
+import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { ApplicationItem, ApplicationCreateResponse, SocialProviderConfig } from '../../types/api'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
+import Icon from '../../components/Icon.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -213,8 +215,8 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
       title="应用接入"
     >
       <template #actions>
-        <t-button variant="outline" class="lumina-outline-btn" @click="loadApps">刷新</t-button>
-        <t-button theme="primary" class="lumina-primary-btn" @click="openCreate">新建应用</t-button>
+        <NButton class="lumina-outline-btn" @click="loadApps">刷新</NButton>
+        <NButton type="primary" class="lumina-primary-btn" @click="openCreate">新建应用</NButton>
       </template>
     </PageHeader>
 
@@ -228,9 +230,9 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
     <!-- Search & Filter bar -->
     <section class="panel-card p-6" style="border-radius: 2rem;">
       <div class="grid gap-4 lg:grid-cols-[1.2fr,1fr,auto]">
-        <t-input v-model="searchQuery" size="large" placeholder="搜索应用名称 / Client ID" @keyup.enter="loadApps" />
-        <t-select v-model="statusFilter" size="large" :options="statusOptions" />
-        <t-button variant="outline" class="!h-11 !px-5 lumina-outline-btn" @click="loadApps">筛选</t-button>
+        <NInput v-model:value="searchQuery" size="large" placeholder="搜索应用名称 / Client ID" @keyup.enter="loadApps" />
+        <NSelect v-model:value="statusFilter" size="large" :options="statusOptions" />
+        <NButton class="!h-11 !px-5 lumina-outline-btn" @click="loadApps">筛选</NButton>
       </div>
     </section>
 
@@ -243,7 +245,7 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
       >
         <div class="app-card-header">
           <div class="app-icon" :style="{ background: appIconColor(index) }">
-            <t-icon :name="appIconName(index)" size="22px" />
+            <Icon :name="appIconName(index)" size="22px" />
           </div>
           <div class="app-card-meta">
             <div class="flex items-center gap-2">
@@ -259,7 +261,7 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
         <div class="app-client-id" @click="copyToClipboard(item.clientId, 'Client ID')">
           <span class="app-client-label">Client ID</span>
           <span class="app-client-value">{{ item.clientId }}</span>
-          <t-icon name="copy" size="14px" class="app-client-copy" />
+          <Icon name="copy" size="14px" class="app-client-copy" />
         </div>
 
         <!-- Meta info -->
@@ -286,36 +288,33 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
 
         <!-- Actions -->
         <div class="app-card-actions">
-          <t-button variant="outline" size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</t-button>
-          <t-button
-            variant="outline"
+          <NButton size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</NButton>
+          <NButton
             size="small"
             :class="['action-tag', item.status === 'active' ? 'action-disable' : 'action-enable']"
             @click="toggleStatus(item)"
-          >{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
-          <t-button variant="outline" size="small" class="action-tag action-secret" @click="viewSecret(item)">密钥</t-button>
-          <t-button variant="outline" size="small" class="action-tag action-reset" @click="resetSecret(item)">重置</t-button>
-          <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteApp(item)">删除</t-button>
+          >{{ item.status === 'active' ? '禁用' : '启用' }}</NButton>
+          <NButton size="small" class="action-tag action-secret" @click="viewSecret(item)">密钥</NButton>
+          <NButton size="small" class="action-tag action-reset" @click="resetSecret(item)">重置</NButton>
+          <NButton size="small" class="action-tag action-delete" @click="deleteApp(item)">删除</NButton>
         </div>
       </div>
 
       <!-- Empty state -->
       <div v-if="filteredApps.length === 0 && !loading" class="app-empty-state">
-        <t-icon name="app" size="40px" />
+        <Icon name="app" size="40px" />
         <p class="mt-3 text-sm font-semibold text-[var(--text-primary)]">暂无应用数据</p>
         <p class="mt-1 text-xs text-[var(--text-muted)]">点击「新建应用」接入你的第一个 OAuth 业务系统</p>
-        <t-button theme="primary" class="lumina-primary-btn mt-4" @click="openCreate">新建应用</t-button>
+        <NButton type="primary" class="lumina-primary-btn mt-4" @click="openCreate">新建应用</NButton>
       </div>
     </div>
 
     <!-- Create/Edit Dialog -->
-    <t-dialog
-      v-model:visible="showCreateDialog"
-      :header="editingApp ? '编辑应用' : '新建应用'"
-      width="620px"
-      :confirm-btn="{ content: editingApp ? '保存' : '创建', theme: 'primary', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="saveApp"
+    <NModal
+      v-model:show="showCreateDialog"
+      preset="card"
+      :title="editingApp ? '编辑应用' : '新建应用'"
+      style="width: 620px"
     >
       <div class="app-dialog-form">
         <div v-if="editingApp?.status === 'disabled'" class="app-dialog-alert app-dialog-alert--danger">
@@ -326,18 +325,19 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
         <div class="app-dialog-grid">
           <label class="app-form-field">
             <span>应用名称</span>
-              <t-input v-model="formData.name" size="large" placeholder="例如 一证通行业务系统" />
+              <NInput v-model:value="formData.name" size="large" placeholder="例如 一证通行业务系统" />
           </label>
           <label class="app-form-field">
             <span>应用描述</span>
-            <t-input v-model="formData.description" size="large" placeholder="描述（可选）" />
+            <NInput v-model:value="formData.description" size="large" placeholder="描述（可选）" />
           </label>
         </div>
 
         <label class="app-form-field">
           <span>回调地址</span>
-          <t-textarea
-            v-model="formData.redirectUris"
+          <NInput
+            v-model:value="formData.redirectUris"
+            type="textarea"
             placeholder="每行一个，例如 https://example.com/oauth/callback"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
@@ -345,8 +345,9 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
 
         <label class="app-form-field">
           <span>Scope 权限</span>
-          <t-textarea
-            v-model="formData.scopes"
+          <NInput
+            v-model:value="formData.scopes"
+            type="textarea"
             placeholder="每行一个，默认 openid / profile / email"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
@@ -357,29 +358,35 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
             <p>允许注册</p>
             <span>允许用户从该应用 OAuth 授权链路创建账号</span>
           </div>
-          <t-switch v-model="formData.allowRegistration" />
+          <NSwitch v-model:value="formData.allowRegistration" />
         </div>
 
         <label class="app-form-field">
           <span>第三方登录</span>
-          <t-select
-            v-model="formData.enabledSocialProviders"
+          <NSelect
+            v-model:value="formData.enabledSocialProviders"
             :options="providerOptions"
             placeholder="选择已启用的第三方登录"
             multiple
             size="large"
-            :min-collapsed-num="3"
+            :max-tag-count="3"
           />
         </label>
       </div>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showCreateDialog = false">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="saveApp">{{ editingApp ? '保存' : '创建' }}</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <!-- Secret Display Dialog -->
-    <t-dialog
-      v-model:visible="showSecretDialog"
-      header="凭据信息"
-      width="560px"
-      :footer="false"
+    <NModal
+      v-model:show="showSecretDialog"
+      preset="card"
+      title="凭据信息"
+      style="width: 560px"
     >
       <div class="space-y-4">
         <div class="rounded-2xl border border-[rgba(244,63,94,0.15)] bg-[rgba(244,63,94,0.08)] p-4">
@@ -397,11 +404,11 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
           </div>
         </div>
         <div class="action-row">
-          <t-button variant="outline" class="lumina-outline-btn" @click="copyToClipboard(secretResult!.clientId, 'Client ID')">复制 ID</t-button>
-          <t-button theme="primary" class="lumina-primary-btn" @click="copyToClipboard(secretResult!.clientSecret, 'Client Secret')">复制 Secret</t-button>
+          <NButton class="lumina-outline-btn" @click="copyToClipboard(secretResult!.clientId, 'Client ID')">复制 ID</NButton>
+          <NButton type="primary" class="lumina-primary-btn" @click="copyToClipboard(secretResult!.clientSecret, 'Client Secret')">复制 Secret</NButton>
         </div>
       </div>
-    </t-dialog>
+    </NModal>
   </div>
 </template>
 

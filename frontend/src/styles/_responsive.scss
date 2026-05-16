@@ -219,26 +219,26 @@
     gap: 8px;
   }
 
-  .t-dialog {
+  .n-modal {
     width: calc(100vw - 24px) !important;
     max-width: calc(100vw - 24px) !important;
     margin: 0 auto !important;
   }
 
-  .t-dialog__body {
+  .n-modal .n-card__content {
     max-height: calc(100vh - 180px);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
 
-  .t-dialog img,
-  .t-dialog canvas,
-  .t-dialog svg {
+  .n-modal img,
+  .n-modal canvas,
+  .n-modal svg {
     max-width: 100%;
     height: auto;
   }
 
-  .t-dialog [class*="w-["] {
+  .n-modal [class*="w-["] {
     max-width: 100%;
   }
 }
@@ -248,7 +248,7 @@
   .console-topbar { padding: 12px 14px; }
   .metric-value { font-size: 28px; }
 
-  .t-button.action-tag {
+  .n-button.action-tag {
     height: 32px !important;
     min-height: 32px !important;
     padding: 0 10px !important;
@@ -265,7 +265,7 @@
   .app-card:hover,
   .data-table tbody tr:hover td,
   .nav-link:hover,
-  .t-button:hover {
+  .n-button:hover {
     transform: none !important;
     filter: none !important;
     opacity: 1 !important;

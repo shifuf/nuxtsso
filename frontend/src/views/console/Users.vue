@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { NButton, NInput, NSelect, NModal } from 'naive-ui'
+import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { UserProfile, SocialAccountItem, SocialProviderConfig } from '../../types/api'
 import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../../utils/qrcode'
@@ -88,6 +89,11 @@ const roleOptions = [
 
 const statusOptions = [
   { label: '全部状态', value: '全部' },
+  { label: '启用', value: 'active' },
+  { label: '禁用', value: 'disabled' },
+]
+
+const userStatusOptions = [
   { label: '启用', value: 'active' },
   { label: '禁用', value: 'disabled' },
 ]
@@ -494,8 +500,8 @@ async function bindToUser() {
       title="用户管理"
     >
       <template #actions>
-        <t-button variant="outline" @click="loadUsers">刷新</t-button>
-        <t-button theme="primary" @click="openCreate">新建用户</t-button>
+        <NButton @click="loadUsers">刷新</NButton>
+        <NButton type="primary" @click="openCreate">新建用户</NButton>
       </template>
     </PageHeader>
 
@@ -508,10 +514,10 @@ async function bindToUser() {
 
     <section class="panel-card p-6">
       <div class="grid gap-4 lg:grid-cols-[1.5fr,0.8fr,0.8fr,auto]">
-        <t-input v-model="searchQuery" size="large" placeholder="搜索邮箱 / 用户名" />
-        <t-select v-model="roleFilter" size="large" :options="roleOptions" />
-        <t-select v-model="statusFilter" size="large" :options="statusOptions" />
-        <t-button variant="outline" class="!h-11 !px-5" @click="loadUsers">筛选</t-button>
+        <NInput v-model:value="searchQuery" size="large" placeholder="搜索邮箱 / 用户名" />
+        <NSelect v-model:value="roleFilter" size="large" :options="roleOptions" />
+        <NSelect v-model:value="statusFilter" size="large" :options="statusOptions" />
+        <NButton class="!h-11 !px-5" @click="loadUsers">筛选</NButton>
       </div>
 
       <div class="mt-5">
@@ -577,37 +583,33 @@ async function bindToUser() {
                   </td>
                   <td>
                     <div class="flex gap-1.5 flex-wrap">
-                      <t-button variant="outline" size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</t-button>
-                      <t-button
-                        variant="outline"
+                      <NButton size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</NButton>
+                      <NButton
                         size="small"
                         :class="['action-tag', item.status === 'active' ? 'action-disable' : 'action-enable']"
                         :disabled="isAdminUser(item)"
                         @click="toggleStatus(item)"
-                      >{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
-                      <t-button variant="outline" size="small" class="action-tag action-reset" @click="openPasswordReset(item.id)">重置密码</t-button>
-                      <t-button
+                      >{{ item.status === 'active' ? '禁用' : '启用' }}</NButton>
+                      <NButton size="small" class="action-tag action-reset" @click="openPasswordReset(item.id)">重置密码</NButton>
+                      <NButton
                         v-if="isRegularUser(item)"
-                        variant="outline"
                         size="small"
                         class="action-tag action-bind"
                         @click="openSocialBind(item)"
-                      >绑定三方</t-button>
-                      <t-button
+                      >绑定三方</NButton>
+                      <NButton
                         v-if="isSocialUser(item) && !item.boundToUser"
-                        variant="outline"
                         size="small"
                         class="action-tag action-bind"
                         @click="openUserBind(item)"
-                      >绑定用户</t-button>
-                      <t-button
-                        variant="outline"
+                      >绑定用户</NButton>
+                      <NButton
                         size="small"
                         class="action-tag action-delete"
                         :disabled="hasDeleteBlocker(item)"
                         :title="deleteBlockerText(item)"
                         @click="deleteUser(item)"
-                      >删除</t-button>
+                      >删除</NButton>
                     </div>
                   </td>
                 </tr>
@@ -622,52 +624,55 @@ async function bindToUser() {
     </section>
 
     <!-- Create/Edit User Dialog -->
-    <t-dialog
-      v-model:visible="showUserDialog"
-      :header="editingUser ? '编辑用户' : '新建用户'"
-      width="520px"
-      :confirm-btn="{ content: '保存', theme: 'primary', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="saveUser"
+    <NModal
+      v-model:show="showUserDialog"
+      preset="card"
+      :title="editingUser ? '编辑用户' : '新建用户'"
+      style="width: 520px"
     >
       <form class="space-y-4 pt-2" @submit.prevent="saveUser">
-        <t-input v-model="userForm.email" size="large" placeholder="邮箱" :disabled="!!editingUser" />
-        <t-input v-model="userForm.username" size="large" placeholder="用户名" />
-        <t-input v-if="!editingUser" v-model="userForm.password" type="password" size="large" placeholder="密码" />
-        <t-select
-          v-model="userForm.status"
+        <NInput v-model:value="userForm.email" size="large" placeholder="邮箱" :disabled="!!editingUser" />
+        <NInput v-model:value="userForm.username" size="large" placeholder="用户名" />
+        <NInput v-if="!editingUser" v-model:value="userForm.password" type="password" size="large" placeholder="密码" />
+        <NSelect
+          v-model:value="userForm.status"
           size="large"
           :disabled="editingUser?.role === 'admin'"
-          :options="[
-            { label: '启用', value: 'active' },
-            { label: '禁用', value: 'disabled' },
-          ]"
+          :options="userStatusOptions"
         />
       </form>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showUserDialog = false">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="saveUser">保存</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <!-- Reset Password Dialog -->
-    <t-dialog
-      v-model:visible="showPasswordDialog"
-      header="重置密码"
-      width="400px"
-      :confirm-btn="{ content: '确认重置', theme: 'warning', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="resetPassword(newPassword)"
+    <NModal
+      v-model:show="showPasswordDialog"
+      preset="card"
+      title="重置密码"
+      style="width: 400px"
     >
       <form class="pt-2" @submit.prevent="resetPassword(newPassword)">
-        <t-input v-model="newPassword" size="large" type="password" placeholder="输入新密码" />
+        <NInput v-model:value="newPassword" size="large" type="password" placeholder="输入新密码" />
       </form>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showPasswordDialog = false">取消</NButton>
+          <NButton type="warning" :loading="saving" @click="resetPassword(newPassword)">确认重置</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <!-- Social Bind Dialog -->
-    <t-dialog
-      v-model:visible="showSocialDialog"
-      header="绑定第三方账号"
-      width="580px"
-      :confirm-btn="socialBindMode === 'input' ? { content: '绑定', theme: 'primary', loading: saving, disabled: !selectedSocial } : null"
-      :cancel-btn="{ content: '关闭', variant: 'outline' }"
-      @confirm="socialBindMode === 'input' ? bindSocial() : undefined"
+    <NModal
+      v-model:show="showSocialDialog"
+      preset="card"
+      title="绑定第三方账号"
+      style="width: 580px"
       @close="resetSocialBindDialog"
     >
       <div class="space-y-4 pt-2">
@@ -689,7 +694,7 @@ async function bindToUser() {
 
         <!-- Input mode -->
         <template v-if="socialBindMode === 'input'">
-          <t-input v-model="socialSearch" size="large" placeholder="搜索第三方用户 ID（如 wechat_xxx）" />
+          <NInput v-model:value="socialSearch" size="large" placeholder="搜索第三方用户 ID（如 wechat_xxx）" />
 
           <div v-if="socialSearch && filteredSocialAccounts.length" class="space-y-2 max-h-48 overflow-y-auto">
             <div
@@ -773,24 +778,28 @@ async function bindToUser() {
           </div>
         </template>
       </div>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showSocialDialog = false">关闭</NButton>
+          <NButton v-if="socialBindMode === 'input'" type="primary" :loading="saving" :disabled="!selectedSocial" @click="bindSocial">绑定</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <!-- Bind User Dialog (for social users) -->
-    <t-dialog
-      v-model:visible="showUserBindDialog"
-      header="绑定用户账号"
-      width="440px"
-      :confirm-btn="{ content: '确认绑定', theme: 'primary', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="bindToUser"
+    <NModal
+      v-model:show="showUserBindDialog"
+      preset="card"
+      title="绑定用户账号"
+      style="width: 440px"
     >
       <div class="space-y-4 pt-2">
         <p class="text-sm text-[var(--text-secondary)]">
           为三方账号 <span class="font-semibold text-[var(--text-primary)]">{{ userBindTarget?.username || userBindTarget?.email }}</span> 绑定已有用户
         </p>
         <p class="text-xs text-[var(--text-muted)]">输入用户名、邮箱或用户 ID 后自动搜索，选择目标用户完成绑定。</p>
-        <t-input
-          v-model="userBindUsername"
+        <NInput
+          v-model:value="userBindUsername"
           size="large"
           placeholder="搜索用户名 / 邮箱 / 用户 ID"
         />
@@ -817,6 +826,12 @@ async function bindToUser() {
           <p class="text-sm text-[var(--text-muted)]">输入关键字后显示可绑定用户</p>
         </div>
       </div>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showUserBindDialog = false">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="bindToUser">确认绑定</NButton>
+        </div>
+      </template>
+    </NModal>
   </div>
 </template>

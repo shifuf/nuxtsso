@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from '../utils/ui'
 import { useAuthStore } from '../stores/auth'
 import { consoleNavItems } from '../utils/console'
 import { useSidebarCollapsed } from '../composables/useSidebarCollapsed'
 import BrandMark from '../components/BrandMark.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,7 +78,7 @@ onMounted(() => { void bootstrapSession() })
           aria-label="折叠侧边栏"
           @click="toggleCollapsed"
         >
-          <t-icon name="chevron-left" size="14px" />
+          <Icon name="chevron-left" size="14px" />
         </button>
       </div>
 
@@ -86,7 +87,7 @@ onMounted(() => { void bootstrapSession() })
         aria-label="展开侧边栏"
         @click="setCollapsed(false)"
       >
-        <t-icon name="chevron-right" size="14px" />
+        <Icon name="chevron-right" size="14px" />
       </button>
 
       <!-- Navigation -->
@@ -98,7 +99,7 @@ onMounted(() => { void bootstrapSession() })
           :to="item.to"
           class="nav-link"
         >
-          <t-icon :name="item.icon" size="18px" />
+          <Icon :name="item.icon" size="18px" />
           <span class="sidebar-label text-sm font-medium">{{ item.label }}</span>
         </router-link>
       </nav>
@@ -130,7 +131,7 @@ onMounted(() => { void bootstrapSession() })
             class="sidebar-footer-info nav-link mt-3 cursor-pointer text-red-400 hover:text-red-300 hover:bg-red-500/10"
             @click.prevent="logout"
           >
-            <t-icon name="logout" size="16px" />
+            <Icon name="logout" size="16px" />
             <span class="text-sm font-medium">退出登录</span>
           </a>
         </div>
@@ -146,7 +147,7 @@ onMounted(() => { void bootstrapSession() })
             aria-label="打开导航"
             @click="mobileMenuOpen = !mobileMenuOpen"
           >
-            <t-icon name="menu-fold" size="18px" />
+            <Icon name="menu-fold" size="18px" />
           </button>
 
           <div class="console-title-block">
@@ -166,7 +167,7 @@ onMounted(() => { void bootstrapSession() })
       <div class="console-body">
         <section v-if="bootstrapping" class="flex min-h-[300px] items-center justify-center text-[var(--text-muted)]">
           <div class="flex items-center gap-3">
-            <t-icon name="loading" size="20px" class="animate-spin" />
+            <Icon name="loading" size="20px" class="animate-spin" />
             <span class="text-sm font-medium">同步会话中...</span>
           </div>
         </section>

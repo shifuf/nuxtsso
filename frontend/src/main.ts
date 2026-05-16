@@ -1,7 +1,5 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import TDesign from 'tdesign-vue-next';
-import 'tdesign-vue-next/es/style/index.css';
 import App from './App.vue';
 import router from './router';
 import './styles/main.scss';
@@ -36,7 +34,6 @@ const pinia = createPinia();
 
 app.use(pinia);
 app.use(router);
-app.use(TDesign);
 
 // Check setup status and redirect to /setup if not initialized
 router.isReady().then(async () => {

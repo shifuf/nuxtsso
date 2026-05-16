@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { Table as TTable, Pagination as TPagination } from 'tdesign-vue-next';
+import { NDataTable, NPagination } from 'naive-ui';
 
 const props = withDefaults(defineProps<{
   data: any[];
@@ -32,28 +32,31 @@ const pagedData = computed(() => {
 });
 
 const showPagination = computed(() => props.data.length > currentPageSize.value);
+
+const rowKeyFn = (row: any) => row?.[props.rowKey];
 </script>
 
 <template>
-  <t-table
+  <NDataTable
     :data="pagedData"
     :columns="columns"
     :loading="loading"
-    :row-key="rowKey"
+    :row-key="rowKeyFn"
     :bordered="bordered"
     :size="size"
   >
     <template v-for="(_, name) in $slots" #[name]="slotData">
       <slot :name="name" v-bind="slotData ?? {}" />
     </template>
-  </t-table>
+  </NDataTable>
   <div v-if="showPagination" class="pagination-wrap">
-    <t-pagination
-      v-model="currentPage"
+    <NPagination
+      v-model:page="currentPage"
       v-model:page-size="currentPageSize"
-      :total="props.data.length"
-      :page-size-options="pageSizeOptions"
+      :item-count="props.data.length"
+      :page-sizes="pageSizeOptions"
       size="small"
+      show-size-picker
     />
   </div>
 </template>

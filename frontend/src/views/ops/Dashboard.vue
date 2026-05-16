@@ -1,4 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
+import { NButton } from 'naive-ui'
+import Icon from '../../components/Icon.vue'
+
 const clusterMetrics = [
   { label: 'CPU Utilization', value: '42.8%', status: 'ok', trend: '+1.2%' },
   { label: 'Memory Buffer', value: '18.4 GB', status: 'ok', trend: '-0.5%' },
@@ -18,7 +21,7 @@ const serviceList = [
   <div class="space-y-6">
     <!-- Infrastructure Health Grid -->
     <div class="grid grid-cols-4 gap-6">
-      <div v-for="m in clusterMetrics" :key="m.label" class="l-box p-4 border-l-4" 
+      <div v-for="m in clusterMetrics" :key="m.label" class="l-box p-4 border-l-4"
         :class="m.status === 'warn' ? 'border-l-amber-500' : 'border-l-slate-200'">
         <div class="flex justify-between items-start mb-2">
           <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">{{ m.label }}</span>
@@ -34,8 +37,8 @@ const serviceList = [
         <div class="l-box-header">
           <span class="l-box-title">Active Service Registry</span>
           <div class="flex gap-2">
-            <t-button variant="outline" size="small">Refresh Data</t-button>
-            <t-button variant="outline" size="small">Export Schema</t-button>
+            <NButton size="small">Refresh Data</NButton>
+            <NButton size="small">Export Schema</NButton>
           </div>
         </div>
         <div class="p-0">
@@ -88,12 +91,12 @@ const serviceList = [
             </div>
             <p class="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Last Modified: 2026-04-27 10:24:12</p>
           </div>
-          
+
           <div class="pt-4 mt-4 border-t border-slate-100">
-            <t-button block variant="outline" class="!border-dashed !border-slate-300">
-              <template #icon><t-icon name="add" /></template>
+            <NButton block dashed class="!border-dashed !border-slate-300">
+              <template #icon><Icon name="add" /></template>
               Append Security Rule
-            </t-button>
+            </NButton>
           </div>
         </div>
         <div class="p-4 bg-slate-900 text-white border-t border-slate-800">

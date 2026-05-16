@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { NButton, NInput, NModal, NSwitch, NDropdown, NUpload, type UploadCustomRequestOptions, type UploadFileInfo } from 'naive-ui'
+import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { authApi } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
 import type { AccountSession, SocialAccountBinding, ApplicationItem, ApplicationCreateResponse } from '../../types/api'
@@ -22,7 +23,7 @@ const createdApplication = ref<ApplicationCreateResponse | null>(null)
 
 const profileForm = ref({ username: '' })
 const avatarPreview = ref('')
-const avatarUploadFiles = ref<Array<{ name?: string; url?: string; status?: 'success' | 'fail' | 'progress' | 'waiting'; raw?: File }>>([])
+const avatarUploadFiles = ref<UploadFileInfo[]>([])
 const passwordForm = ref({ password: '', confirmPassword: '' })
 const showPasswordSection = ref(false)
 const showApplicationForm = ref(false)
@@ -69,6 +70,13 @@ const availableBindProviders = computed(() => {
   return socialProviders.value.filter(item => item.enabled && !bound.has(item.name))
 })
 
+const availableBindDropdownOptions = computed(() =>
+  availableBindProviders.value.map(item => ({
+    label: providerLabel(item.name),
+    key: item.name,
+  }))
+)
+
 const socialProviderCount = ref(0)
 const sessionCount = ref(0)
 
@@ -98,7 +106,7 @@ async function loadData() {
       profileForm.value.username = u.username || ''
       avatarPreview.value = u.avatar || ''
       avatarUploadFiles.value = u.avatar
-        ? [{ name: 'avatar', url: u.avatar, status: 'success' }]
+        ? [{ id: 'avatar', name: 'avatar', url: u.avatar, status: 'finished' } as UploadFileInfo]
         : []
     }
 
@@ -121,8 +129,8 @@ async function saveProfile() {
   finally { saving.value = false }
 }
 
-function beforeAvatarUpload(file: { raw?: File; name?: string; size?: number; type?: string }) {
-  const target = file.raw
+function beforeAvatarUpload(options: { file: UploadFileInfo }) {
+  const target = options.file.file
   if (!target) return false
   if (!target.type.startsWith('image/')) {
     MessagePlugin.warning('请选择图片文件')
@@ -136,15 +144,16 @@ function beforeAvatarUpload(file: { raw?: File; name?: string; size?: number; ty
   return true
 }
 
-async function requestAvatarUpload(fileInput: unknown) {
-  const file = Array.isArray(fileInput) ? fileInput[0] : fileInput
-  const raw = (file as { raw?: File })?.raw
+async function requestAvatarUpload({ file, onFinish, onError }: UploadCustomRequestOptions) {
+  const raw = file.file
   if (!raw) {
-    return { status: 'fail', error: '请选择头像文件', response: {} }
+    onError()
+    return
   }
   if (!raw.type.startsWith('image/')) {
     MessagePlugin.warning('请选择图片文件')
-    return { status: 'fail', error: '请选择图片文件', response: {} }
+    onError()
+    return
   }
   saving.value = true
   try {
@@ -152,11 +161,11 @@ async function requestAvatarUpload(fileInput: unknown) {
     await authStore.refreshSession()
     avatarPreview.value = user()?.avatar || ''
     MessagePlugin.success('头像已更新')
-    return { status: 'success', response: { url: avatarPreview.value } }
+    onFinish()
   } catch (e: unknown) {
     const message = (e as { message?: string })?.message || '上传失败'
     MessagePlugin.error(message)
-    return { status: 'fail', error: message, response: {} }
+    onError()
   }
   finally { saving.value = false }
 }
@@ -277,8 +286,8 @@ function providerLabel(name: string) {
   return labels[name] ?? name
 }
 
-function handleSocialProviderDropdownClick(option: { value: string | number }) {
-  void openSocialBindQr(String(option.value))
+function handleSocialProviderDropdownSelect(key: string | number) {
+  void openSocialBindQr(String(key))
 }
 
 function resetSocialBindQr() {
@@ -382,7 +391,6 @@ async function bindToAccount() {
   }
   saving.value = true
   try {
-    // Use the first social provider to transfer binding
     const provider = user()?.socialAccounts?.[0]?.provider
     if (!provider) return MessagePlugin.warning('未找到第三方账号信息')
     await authApi.transferSocialBinding(provider, bindAccountForm.value.username, bindAccountForm.value.password)
@@ -416,8 +424,8 @@ async function setPassword() {
       title="我的账号"
     >
       <template #actions>
-        <t-button variant="outline" @click="revokeOtherSessions">注销其他设备</t-button>
-        <t-button theme="primary" :loading="saving" @click="saveProfile">保存资料</t-button>
+        <NButton @click="revokeOtherSessions">注销其他设备</NButton>
+        <NButton type="primary" :loading="saving" @click="saveProfile">保存资料</NButton>
       </template>
     </PageHeader>
 
@@ -457,25 +465,22 @@ async function setPassword() {
         <p class="eyebrow">个人资料</p>
         <div class="mt-5 space-y-4">
           <div class="grid gap-4 sm:grid-cols-2">
-            <t-input v-model="profileForm.username" size="large" placeholder="用户名" />
-            <t-input :value="user()?.email || ''" size="large" placeholder="邮箱" disabled />
+            <NInput v-model:value="profileForm.username" size="large" placeholder="用户名" />
+            <NInput :value="user()?.email || ''" size="large" placeholder="邮箱" disabled />
           </div>
           <div class="panel-muted avatar-panel p-4">
-            <t-upload
-              v-model="avatarUploadFiles"
+            <NUpload
+              v-model:file-list="avatarUploadFiles"
               class="avatar-upload"
-              theme="image"
+              list-type="image-card"
               accept="image/*"
-              tips="点击上传图片，支持 JPG、PNG、WebP、GIF，最大 2MB"
               :max="1"
-              :auto-upload="true"
-              :show-image-file-name="false"
-              :show-upload-progress="true"
-              :use-mock-progress="true"
-              :mock-progress-duration="900"
-              :before-upload="beforeAvatarUpload"
-              :request-method="requestAvatarUpload"
+              :default-upload="true"
+              :show-file-list="true"
+              :on-before-upload="beforeAvatarUpload"
+              :custom-request="requestAvatarUpload"
             />
+            <p class="mt-2 text-xs text-[var(--text-muted)]">点击上传图片，支持 JPG、PNG、WebP、GIF，最大 2MB</p>
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="panel-muted p-4">
@@ -491,15 +496,15 @@ async function setPassword() {
           <!-- Social user: bind to existing account -->
           <div v-if="isSocial() && !isBoundToUser()">
             <div v-if="!showBindAccount" class="action-row">
-              <t-button theme="primary" @click="showBindAccount = true">绑定已有账号</t-button>
+              <NButton type="primary" @click="showBindAccount = true">绑定已有账号</NButton>
             </div>
             <form v-else class="panel-muted p-4 space-y-4" @submit.prevent="bindToAccount">
               <p class="eyebrow">输入已有账号凭据完成绑定</p>
-              <t-input v-model="bindAccountForm.username" size="large" placeholder="用户名" />
-              <t-input v-model="bindAccountForm.password" type="password" size="large" placeholder="密码" />
+              <NInput v-model:value="bindAccountForm.username" size="large" placeholder="用户名" />
+              <NInput v-model:value="bindAccountForm.password" type="password" size="large" placeholder="密码" />
               <div class="action-row">
-                <t-button variant="outline" @click="showBindAccount = false">取消</t-button>
-                <t-button theme="primary" :loading="saving" @click="bindToAccount">确认绑定</t-button>
+                <NButton @click="showBindAccount = false">取消</NButton>
+                <NButton type="primary" :loading="saving" @click="bindToAccount">确认绑定</NButton>
               </div>
             </form>
           </div>
@@ -513,17 +518,17 @@ async function setPassword() {
 
           <div v-if="!isSocial()">
             <div v-if="!showPasswordSection" class="action-row">
-              <t-button variant="outline" @click="showPasswordSection = true">修改密码</t-button>
+              <NButton @click="showPasswordSection = true">修改密码</NButton>
             </div>
             <form v-else class="panel-muted p-4 space-y-4" @submit.prevent="setPassword">
               <p class="eyebrow">设置新密码</p>
               <div class="grid gap-4 sm:grid-cols-2">
-                <t-input v-model="passwordForm.password" type="password" size="large" placeholder="新密码" />
-                <t-input v-model="passwordForm.confirmPassword" type="password" size="large" placeholder="确认密码" />
+                <NInput v-model:value="passwordForm.password" type="password" size="large" placeholder="新密码" />
+                <NInput v-model:value="passwordForm.confirmPassword" type="password" size="large" placeholder="确认密码" />
               </div>
               <div class="action-row">
-                <t-button variant="outline" @click="showPasswordSection = false">取消</t-button>
-                <t-button theme="primary" :loading="saving" @click="setPassword">确认设置</t-button>
+                <NButton @click="showPasswordSection = false">取消</NButton>
+                <NButton type="primary" :loading="saving" @click="setPassword">确认设置</NButton>
               </div>
             </form>
           </div>
@@ -549,7 +554,7 @@ async function setPassword() {
               <p class="mt-1.5 text-xs text-[var(--text-muted)]">{{ parseBrowser(session.userAgent) }} · {{ formatDateTime(session.createdAt) }}</p>
               <p class="mt-1 break-all font-mono text-xs text-[var(--text-muted)]">{{ session.scopes.join(' ') }}</p>
             </div>
-            <t-button v-if="!session.current" variant="outline" size="small" theme="danger" @click="revokeSession(session.id)">注销</t-button>
+            <NButton v-if="!session.current" size="small" type="error" @click="revokeSession(session.id)">注销</NButton>
           </div>
           <div v-if="sessions.length === 0 && !loading" class="panel-muted p-4 text-center">
             <p class="text-sm text-[var(--text-muted)]">暂无活跃会话</p>
@@ -565,7 +570,7 @@ async function setPassword() {
           <h2 class="mt-2 text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">我的应用</h2>
           <p class="mt-1 text-sm text-[var(--text-muted)]">用户可提交接入应用，管理员在后台启用或禁用运行状态。</p>
         </div>
-        <t-button theme="primary" @click="openApplicationDialog">添加应用</t-button>
+        <NButton type="primary" @click="openApplicationDialog">添加应用</NButton>
       </div>
 
       <div v-if="createdApplication" class="mt-5 rounded-2xl border border-[rgba(245,158,11,0.18)] bg-[rgba(245,158,11,0.08)] p-4">
@@ -591,37 +596,37 @@ async function setPassword() {
       </div>
     </section>
 
-    <t-dialog
-      v-model:visible="showApplicationForm"
-      header="添加应用"
-      width="620px"
-      :confirm-btn="{ content: '提交应用', theme: 'primary', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="createApplication"
+    <NModal
+      v-model:show="showApplicationForm"
+      preset="card"
+      title="添加应用"
+      style="width: 620px"
     >
       <div class="account-app-dialog">
         <div class="account-app-grid">
           <label class="app-form-field">
             <span>应用名称</span>
-              <t-input v-model="applicationForm.name" size="large" placeholder="例如 一证通行业务系统" />
+              <NInput v-model:value="applicationForm.name" size="large" placeholder="例如 一证通行业务系统" />
           </label>
           <label class="app-form-field">
             <span>应用描述</span>
-            <t-input v-model="applicationForm.description" size="large" placeholder="描述（可选）" />
+            <NInput v-model:value="applicationForm.description" size="large" placeholder="描述（可选）" />
           </label>
         </div>
         <label class="app-form-field">
           <span>回调地址</span>
-          <t-textarea
-            v-model="applicationForm.redirectUris"
+          <NInput
+            v-model:value="applicationForm.redirectUris"
+            type="textarea"
             placeholder="每行一个，例如 http://localhost:5173/oauth/callback"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
         </label>
         <label class="app-form-field">
           <span>Scope 权限</span>
-          <t-textarea
-            v-model="applicationForm.scopes"
+          <NInput
+            v-model:value="applicationForm.scopes"
+            type="textarea"
             placeholder="每行一个，例如 openid / profile / email"
             :autosize="{ minRows: 3, maxRows: 5 }"
           />
@@ -631,10 +636,16 @@ async function setPassword() {
             <p>允许注册</p>
             <span>允许从该应用授权流程注册新用户</span>
           </div>
-          <t-switch v-model="applicationForm.allowRegistration" />
+          <NSwitch v-model:value="applicationForm.allowRegistration" />
         </div>
       </div>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="showApplicationForm = false">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="createApplication">提交应用</NButton>
+        </div>
+      </template>
+    </NModal>
 
     <!-- Social Bindings Section — only for non-social users -->
     <section v-if="!isSocial()" class="panel-card p-6">
@@ -645,9 +656,9 @@ async function setPassword() {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <StatusTag tone="danger" label="解绑需要二次确认" />
-          <t-dropdown v-if="availableBindProviders.length > 0" :options="availableBindProviders.map(item => ({ content: providerLabel(item.name), value: item.name }))" @click="handleSocialProviderDropdownClick">
-            <t-button theme="primary">添加绑定</t-button>
-          </t-dropdown>
+          <NDropdown v-if="availableBindProviders.length > 0" :options="availableBindDropdownOptions" trigger="click" @select="handleSocialProviderDropdownSelect">
+            <NButton type="primary">添加绑定</NButton>
+          </NDropdown>
         </div>
       </div>
 
@@ -660,7 +671,7 @@ async function setPassword() {
           <p class="mt-4 break-all font-mono text-xs text-[var(--text-muted)]">{{ binding.providerUserId }}</p>
           <p class="mt-3 text-sm text-[var(--text-muted)]">绑定时间：{{ formatDateTime(binding.createdAt) }}</p>
           <div class="action-row mt-4">
-            <t-button variant="outline" theme="danger" @click="unbindSocial(binding.provider)">解绑</t-button>
+            <NButton type="error" ghost @click="unbindSocial(binding.provider)">解绑</NButton>
           </div>
         </div>
         <div v-if="bindings.length === 0 && !loading" class="col-span-full panel-muted p-4 text-center">
@@ -697,11 +708,11 @@ async function setPassword() {
       </div>
     </section>
 
-    <t-dialog
-      v-model:visible="showSocialBindDialog"
-      :header="`${providerLabel(selectedBindProvider)} 扫码绑定`"
-      width="430px"
-      :footer="false"
+    <NModal
+      v-model:show="showSocialBindDialog"
+      preset="card"
+      :title="`${providerLabel(selectedBindProvider)} 扫码绑定`"
+      style="width: 430px"
       @close="resetSocialBindQr"
     >
       <div class="space-y-4 pt-2 text-center">
@@ -730,11 +741,11 @@ async function setPassword() {
         <p class="text-sm font-semibold text-[var(--text-primary)]">{{ socialBindMessage }}</p>
         <p v-if="socialBindStatus === 'pending'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，当前页面不会跳转，会自动更新绑定状态。</p>
         <div v-if="socialBindStatus === 'failed' || socialBindStatus === 'expired'" class="action-row justify-center">
-          <t-button variant="outline" @click="showSocialBindDialog = false; resetSocialBindQr()">关闭</t-button>
-          <t-button theme="primary" @click="openSocialBindQr(selectedBindProvider)">重新生成</t-button>
+          <NButton @click="showSocialBindDialog = false; resetSocialBindQr()">关闭</NButton>
+          <NButton type="primary" @click="openSocialBindQr(selectedBindProvider)">重新生成</NButton>
         </div>
       </div>
-    </t-dialog>
+    </NModal>
   </div>
 </template>
 
@@ -743,25 +754,6 @@ async function setPassword() {
   display: inline-flex;
   align-items: flex-start;
   width: auto;
-}
-
-.avatar-upload :deep(.t-upload__card) {
-  width: 112px;
-  height: 112px;
-  border-radius: 4px;
-  border-color: var(--border-primary);
-  background: var(--surface-muted);
-}
-
-.avatar-upload :deep(.t-upload__card:hover) {
-  border-color: var(--accent);
-  background: var(--accent-softer);
-}
-
-.avatar-upload :deep(.t-upload__card-name),
-.avatar-upload :deep(.t-upload__tips) {
-  color: var(--text-muted);
-  font-size: 12px;
 }
 
 .account-app-dialog {

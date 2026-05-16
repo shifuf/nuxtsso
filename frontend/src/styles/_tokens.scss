@@ -109,10 +109,10 @@
 :root[data-app-theme='dark'] .auth-shell,
 :root[data-app-theme='dark'] .portal-shell,
 :root[data-app-theme='dark'] .setup-shell,
-:root[data-app-theme='dark'] .t-dialog__ctx,
-:root[data-app-theme='dark'] .t-popup,
-:root[data-app-theme='dark'] .t-drawer,
-:root[data-app-theme='dark'] .t-message {
+:root[data-app-theme='dark'] .n-modal,
+:root[data-app-theme='dark'] .n-popover,
+:root[data-app-theme='dark'] .n-drawer,
+:root[data-app-theme='dark'] .n-message {
   --primary-50: #0a11ff;
   --primary-100: #1c31ff;
   --primary-200: #1f36ff;

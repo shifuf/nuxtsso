@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { NButton } from 'naive-ui'
 import StatusTag from '../components/StatusTag.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,13 +84,13 @@ onMounted(() => {
     </div>
 
     <div class="action-row mt-6 justify-center">
-      <t-button theme="primary" class="lumina-primary-btn" @click="router.push('/user/account')">进入用户中心</t-button>
-      <t-button variant="outline" class="lumina-outline-btn" @click="router.push('/login')">返回登录页</t-button>
+      <NButton type="primary" class="lumina-primary-btn" @click="router.push('/user/account')">进入用户中心</NButton>
+      <NButton class="lumina-outline-btn" @click="router.push('/login')">返回登录页</NButton>
     </div>
 
     <p class="mt-6 text-center text-[10px] font-black uppercase tracking-[0.2em] text-[var(--text-faint)]">
       <span class="inline-flex items-center gap-1.5">
-        <t-icon name="swap" size="12px" />
+        <Icon name="swap" size="12px" />
         Identity Provider Callback Handler
       </span>
     </p>

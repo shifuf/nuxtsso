@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NButton } from 'naive-ui'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
 
@@ -29,8 +30,8 @@ const scopes = [
   <div class="space-y-6">
     <PageHeader title="对接文档">
       <template #actions>
-        <t-button variant="outline" @click="$router.push('/user/applications')">管理应用</t-button>
-        <t-button theme="primary" @click="$router.push('/user/applications')">新建应用</t-button>
+        <NButton @click="$router.push('/user/applications')">管理应用</NButton>
+        <NButton type="primary" @click="$router.push('/user/applications')">新建应用</NButton>
       </template>
     </PageHeader>
 
@@ -43,7 +44,7 @@ const scopes = [
             业务系统只需要完成应用登记、授权跳转、回调换 token 三步，即可接入一证通行。
           </p>
         </div>
-        <StatusTag tone="success" label="推荐" />
+        <StatusTag tone="info" label="推荐" />
       </div>
 
       <div class="mt-6 grid gap-4">

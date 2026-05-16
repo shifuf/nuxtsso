@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
+import { NButton, NInput, NSelect, NSwitch, NTabs, NTabPane, NModal, NRadioGroup, NRadioButton } from 'naive-ui'
+import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { SocialProviderConfig, EmailConfig, BackupInfo, SiteConfig } from '../../types/api'
 import PageHeader from '../../components/PageHeader.vue'
@@ -54,6 +55,12 @@ const endpoints = [
   '/oauth2/token',
   '/oauth2/userinfo',
   '/oauth2/jwks',
+]
+
+const intervalOptions = [
+  { label: '每 12 小时', value: 12 },
+  { label: '每天 02:00', value: 24 },
+  { label: '每 48 小时', value: 48 },
 ]
 
 onMounted(async () => {
@@ -279,15 +286,15 @@ function formatBytes(bytes: number) {
       title="系统设置"
     >
       <template #actions>
-        <t-button variant="outline" @click="testEmail">发送测试邮件</t-button>
-        <t-button theme="primary" :loading="saving" @click="saveAuthConfig">保存配置</t-button>
+        <NButton @click="testEmail">发送测试邮件</NButton>
+        <NButton type="primary" :loading="saving" @click="saveAuthConfig">保存配置</NButton>
       </template>
     </PageHeader>
 
     <section class="panel-card p-6">
-      <t-tabs v-model="activeTab">
+      <NTabs v-model:value="activeTab">
         <!-- Auth Tab -->
-        <t-tab-panel value="auth" label="认证与登录">
+        <NTabPane name="auth" tab="认证与登录">
           <div class="grid gap-6 lg:grid-cols-2">
             <div class="panel-muted p-5">
               <p class="eyebrow">认证策略</p>
@@ -297,18 +304,18 @@ function formatBytes(bytes: number) {
                     <p class="text-sm font-semibold text-[var(--text-primary)]">邮箱验证</p>
                     <p class="mt-1 text-sm text-[var(--text-muted)]">注册、找回密码与验证码登录依赖邮箱验证。</p>
                   </div>
-                  <t-switch v-model="authConfig.requireEmailVerification" />
+                  <NSwitch v-model:value="authConfig.requireEmailVerification" />
                 </div>
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <p class="text-sm font-semibold text-[var(--text-primary)]">公开 API</p>
                     <p class="mt-1 text-sm text-[var(--text-muted)]">控制是否开放部分匿名元信息接口。</p>
                   </div>
-                  <t-switch v-model="authConfig.publicApiEnabled" />
+                  <NSwitch v-model:value="authConfig.publicApiEnabled" />
                 </div>
               </div>
               <div class="action-row mt-5">
-                <t-button theme="primary" :loading="saving" @click="saveAuthConfig">保存认证策略</t-button>
+                <NButton type="primary" :loading="saving" @click="saveAuthConfig">保存认证策略</NButton>
               </div>
             </div>
 
@@ -330,19 +337,19 @@ function formatBytes(bytes: number) {
               </div>
             </div>
           </div>
-        </t-tab-panel>
+        </NTabPane>
 
-        <t-tab-panel value="site" label="站点信息">
+        <NTabPane name="site" tab="站点信息">
           <div class="grid gap-6 lg:grid-cols-[1fr,0.8fr]">
             <div class="panel-muted p-5">
               <p class="eyebrow">门户页脚配置</p>
               <div class="mt-5 space-y-4">
-                <t-input v-model="siteConfig.siteName" size="large" label="站点名称" placeholder="一证通行" />
-                <t-input v-model="siteConfig.footerCopyright" size="large" label="版权信息" placeholder="© 2026 一证通行. All rights reserved." />
-                <t-input v-model="siteConfig.icpNumber" size="large" label="备案号" placeholder="例如：京ICP备00000000号-1" />
+                <NInput v-model:value="siteConfig.siteName" size="large" placeholder="站点名称" />
+                <NInput v-model:value="siteConfig.footerCopyright" size="large" placeholder="版权信息" />
+                <NInput v-model:value="siteConfig.icpNumber" size="large" placeholder="例如：京ICP备00000000号-1" />
               </div>
               <div class="action-row mt-5">
-                <t-button theme="primary" :loading="saving" @click="saveSiteConfig">保存站点信息</t-button>
+                <NButton type="primary" :loading="saving" @click="saveSiteConfig">保存站点信息</NButton>
               </div>
             </div>
 
@@ -354,14 +361,14 @@ function formatBytes(bytes: number) {
               </div>
             </div>
           </div>
-        </t-tab-panel>
+        </NTabPane>
 
         <!-- Social Tab -->
-        <t-tab-panel value="social" label="第三方登录">
+        <NTabPane name="social" tab="第三方登录">
           <div class="panel-muted p-5">
             <div class="flex items-center justify-between gap-3">
               <p class="eyebrow">提供方配置</p>
-              <t-button variant="outline" size="small" :loading="saving" @click="initProviders">初始化默认提供方</t-button>
+              <NButton size="small" :loading="saving" @click="initProviders">初始化默认提供方</NButton>
             </div>
             <div class="mt-4 grid gap-3">
               <div
@@ -376,8 +383,8 @@ function formatBytes(bytes: number) {
                   </div>
                   <div class="flex items-center gap-2">
                     <StatusTag :tone="provider.enabled ? 'success' : 'warning'" :label="provider.enabled ? '已启用' : '未启用'" />
-                    <t-button variant="outline" size="small" class="action-tag action-edit" @click="openProviderEdit(provider)">编辑</t-button>
-                    <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteProvider(provider.name)">删除</t-button>
+                    <NButton size="small" class="action-tag action-edit" @click="openProviderEdit(provider)">编辑</NButton>
+                    <NButton size="small" class="action-tag action-delete" @click="deleteProvider(provider.name)">删除</NButton>
                   </div>
                 </div>
               </div>
@@ -386,48 +393,48 @@ function formatBytes(bytes: number) {
               </div>
             </div>
           </div>
-        </t-tab-panel>
+        </NTabPane>
 
         <!-- Mail Tab -->
-        <t-tab-panel value="mail" label="邮件服务">
+        <NTabPane name="mail" tab="邮件服务">
           <div class="grid gap-6 lg:grid-cols-2">
             <div class="panel-muted p-5">
               <p class="eyebrow">SMTP 配置</p>
               <div class="mt-4 space-y-4">
                 <div class="grid gap-4 sm:grid-cols-2">
-                  <t-input v-model="emailConfig.host" size="large" placeholder="SMTP 服务器" />
-                  <t-input v-model.number="emailConfig.port" size="large" placeholder="端口" />
+                  <NInput v-model:value="emailConfig.host" size="large" placeholder="SMTP 服务器" />
+                  <NInput :value="String(emailConfig.port)" size="large" placeholder="端口" @update:value="(v) => emailConfig.port = Number(v) || 0" />
                 </div>
                 <div class="grid gap-4 sm:grid-cols-2">
-                  <t-input v-model="emailConfig.username" size="large" placeholder="用户名" />
-                  <t-input v-model="emailConfig.password" type="password" size="large" placeholder="密码" />
+                  <NInput v-model:value="emailConfig.username" size="large" placeholder="用户名" />
+                  <NInput v-model:value="emailConfig.password" type="password" size="large" placeholder="密码" />
                 </div>
                 <div class="grid gap-4 sm:grid-cols-2">
-                  <t-input v-model="emailConfig.fromName" size="large" placeholder="发件人名称" />
-                  <t-input v-model="emailConfig.fromAddress" size="large" placeholder="发件人地址" />
+                  <NInput v-model:value="emailConfig.fromName" size="large" placeholder="发件人名称" />
+                  <NInput v-model:value="emailConfig.fromAddress" size="large" placeholder="发件人地址" />
                 </div>
                 <div class="flex items-center justify-between gap-3">
                   <span class="text-sm text-[var(--text-primary)]">使用 SSL/TLS</span>
-                  <t-switch v-model="emailConfig.secure" />
+                  <NSwitch v-model:value="emailConfig.secure" />
                 </div>
               </div>
               <div class="action-row mt-4">
-                <t-button theme="primary" :loading="saving" @click="saveEmailConfig">保存邮件配置</t-button>
+                <NButton type="primary" :loading="saving" @click="saveEmailConfig">保存邮件配置</NButton>
               </div>
             </div>
 
             <div class="panel-muted p-5">
               <p class="eyebrow">测试邮件</p>
               <div class="mt-4 space-y-4">
-                <t-input v-model="testEmailAddress" size="large" placeholder="收件人邮箱（留空使用发件人地址）" />
-                <t-button variant="outline" :loading="saving" block @click="testEmail">发送测试邮件</t-button>
+                <NInput v-model:value="testEmailAddress" size="large" placeholder="收件人邮箱（留空使用发件人地址）" />
+                <NButton :loading="saving" block @click="testEmail">发送测试邮件</NButton>
               </div>
             </div>
           </div>
-        </t-tab-panel>
+        </NTabPane>
 
         <!-- Ops Tab -->
-        <t-tab-panel value="ops" label="服务与运维">
+        <NTabPane name="ops" tab="服务与运维">
           <div class="space-y-6">
             <div class="grid gap-6 lg:grid-cols-2">
               <div class="panel-muted p-5">
@@ -440,24 +447,20 @@ function formatBytes(bytes: number) {
                 </div>
 
                 <div class="mt-4 grid gap-4 sm:grid-cols-2">
-                  <t-select
-                    v-model="backupConfig.intervalHours"
+                  <NSelect
+                    v-model:value="backupConfig.intervalHours"
                     size="large"
-                    :options="[
-                      { label: '每 12 小时', value: 12 },
-                      { label: '每天 02:00', value: 24 },
-                      { label: '每 48 小时', value: 48 },
-                    ]"
+                    :options="intervalOptions"
                   />
-                  <t-input v-model.number="backupConfig.retentionCount" size="large" placeholder="保留份数" />
+                  <NInput :value="String(backupConfig.retentionCount)" size="large" placeholder="保留份数" @update:value="(v) => backupConfig.retentionCount = Number(v) || 0" />
                 </div>
                 <div class="mt-4 flex items-center justify-between gap-3">
                   <span class="text-sm text-[var(--text-primary)]">压缩备份</span>
-                  <t-switch v-model="backupConfig.compress" />
+                  <NSwitch v-model:value="backupConfig.compress" />
                 </div>
                 <div class="action-row mt-4">
-                  <t-button variant="outline" :loading="saving" @click="createBackup">手动备份</t-button>
-                  <t-button theme="primary" :loading="saving" @click="saveBackupConfig">保存策略</t-button>
+                  <NButton :loading="saving" @click="createBackup">手动备份</NButton>
+                  <NButton type="primary" :loading="saving" @click="saveBackupConfig">保存策略</NButton>
                 </div>
               </div>
 
@@ -498,8 +501,8 @@ function formatBytes(bytes: number) {
                       <td>{{ item.compressed ? 'gzip' : '原始' }}</td>
                       <td>
                         <div class="flex gap-2">
-                          <t-button variant="outline" size="small" class="action-tag action-reset" @click="restoreBackup(item.filename)">恢复</t-button>
-                          <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteBackup(item.filename)">删除</t-button>
+                          <NButton size="small" class="action-tag action-reset" @click="restoreBackup(item.filename)">恢复</NButton>
+                          <NButton size="small" class="action-tag action-delete" @click="deleteBackup(item.filename)">删除</NButton>
                         </div>
                       </td>
                     </tr>
@@ -511,47 +514,50 @@ function formatBytes(bytes: number) {
               </div>
             </div>
           </div>
-        </t-tab-panel>
-      </t-tabs>
+        </NTabPane>
+      </NTabs>
     </section>
 
     <!-- Provider Edit Dialog -->
-    <t-dialog
-      v-model:visible="showProviderDialog"
-      header="编辑提供方配置"
-      width="600px"
-      :confirm-btn="{ content: '保存', theme: 'primary', loading: saving }"
-      :cancel-btn="{ content: '取消', variant: 'outline' }"
-      @confirm="saveProvider"
-      @cancel="closeProviderDialog"
+    <NModal
+      v-model:show="showProviderDialog"
+      preset="card"
+      title="编辑提供方配置"
+      style="width: 600px"
       @close="closeProviderDialog"
     >
       <div class="space-y-4 pt-2">
-        <t-input v-model="providerForm.name" size="large" placeholder="提供方名称" disabled />
+        <NInput v-model:value="providerForm.name" size="large" placeholder="提供方名称" disabled />
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm text-[var(--text-primary)]">来源类型</span>
-          <t-radio-group v-model="providerForm.type">
-            <t-radio-button value="oauth">官方直连</t-radio-button>
-            <t-radio-button value="aggregated">聚合平台</t-radio-button>
-          </t-radio-group>
+          <NRadioGroup v-model:value="providerForm.type">
+            <NRadioButton value="oauth">官方直连</NRadioButton>
+            <NRadioButton value="aggregated">聚合平台</NRadioButton>
+          </NRadioGroup>
         </div>
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm text-[var(--text-primary)]">启用</span>
-          <t-switch v-model="providerForm.enabled" />
+          <NSwitch v-model:value="providerForm.enabled" />
         </div>
-        <t-input v-model="providerForm.clientId" size="large" placeholder="Client ID" />
-        <t-input v-model="providerForm.clientSecret" size="large" type="password" placeholder="Client Secret" />
+        <NInput v-model:value="providerForm.clientId" size="large" placeholder="Client ID" />
+        <NInput v-model:value="providerForm.clientSecret" size="large" type="password" placeholder="Client Secret" />
         <template v-if="providerForm.type === 'aggregated'">
-          <t-input v-model="providerForm.apiUrl" size="large" placeholder="聚合 API 地址" />
+          <NInput v-model:value="providerForm.apiUrl" size="large" placeholder="聚合 API 地址" />
         </template>
         <template v-else>
-          <t-input v-model="providerForm.authUrl" size="large" placeholder="Auth URL" />
-          <t-input v-model="providerForm.tokenUrl" size="large" placeholder="Token URL" />
-          <t-input v-model="providerForm.userInfoUrl" size="large" placeholder="UserInfo URL" />
+          <NInput v-model:value="providerForm.authUrl" size="large" placeholder="Auth URL" />
+          <NInput v-model:value="providerForm.tokenUrl" size="large" placeholder="Token URL" />
+          <NInput v-model:value="providerForm.userInfoUrl" size="large" placeholder="UserInfo URL" />
         </template>
-        <t-input v-model="providerForm.redirectUri" size="large" placeholder="Redirect URI（可选）" />
-        <t-textarea v-model="providerForm.scopes" placeholder="Scopes（每行一个）" :autosize="{ minRows: 1, maxRows: 3 }" />
+        <NInput v-model:value="providerForm.redirectUri" size="large" placeholder="Redirect URI（可选）" />
+        <NInput v-model:value="providerForm.scopes" type="textarea" placeholder="Scopes（每行一个）" :autosize="{ minRows: 1, maxRows: 3 }" />
       </div>
-    </t-dialog>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <NButton @click="closeProviderDialog">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="saveProvider">保存</NButton>
+        </div>
+      </template>
+    </NModal>
   </div>
 </template>

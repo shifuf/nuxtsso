@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { NButton, NForm, NFormItem, NInput, NSteps, NStep } from 'naive-ui'
+import { MessagePlugin } from '../utils/ui'
 import { authApi } from '../api/auth'
 import { useAuthStore } from '../stores/auth'
 import BrandMark from '../components/BrandMark.vue'
 import ThemeSwitch from '../components/ThemeSwitch.vue'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -91,11 +93,11 @@ async function proceed() {
       <div v-if="alreadyInitialized" class="panel-card callback-card">
         <div class="text-center">
           <div class="grid h-16 w-16 mx-auto place-items-center rounded-2xl bg-[var(--accent-soft)]">
-            <t-icon name="check-circle-filled" size="32px" class="text-[var(--accent)]" />
+            <Icon name="check-circle-filled" size="32px" class="text-[var(--accent)]" />
           </div>
           <h2 class="mt-4 text-xl font-semibold text-[var(--text-primary)]">系统已完成初始化</h2>
           <p class="mt-2 text-sm text-[var(--text-muted)]">如需重新初始化，请清空数据库后重试。</p>
-          <t-button theme="primary" class="mt-6" @click="router.push('/login')">前往登录</t-button>
+          <NButton type="primary" class="mt-6" @click="router.push('/login')">前往登录</NButton>
         </div>
       </div>
 
@@ -133,21 +135,21 @@ async function proceed() {
           </div>
 
           <div class="mt-6">
-            <t-steps :current="currentStep" theme="dot" layout="horizontal">
-              <t-step-item v-for="step in steps" :key="step" :title="step" />
-            </t-steps>
+            <NSteps :current="currentStep + 1" size="small">
+              <NStep v-for="step in steps" :key="step" :title="step" />
+            </NSteps>
           </div>
 
           <div class="section-divider mt-6 pt-6">
             <div v-if="currentStep === 0" class="space-y-5">
-              <t-form :data="formData" label-align="top" class="space-y-4">
-                <t-form-item label="服务名称">
-                  <t-input v-model="formData.serviceName" size="large" placeholder="展示在登录页和用户中心的名称" />
-                </t-form-item>
-                <t-form-item label="OIDC Issuer">
-                  <t-input v-model="formData.issuer" size="large" placeholder="留空时可回退到当前域名" />
-                </t-form-item>
-              </t-form>
+              <NForm :model="formData" label-placement="top" class="space-y-4">
+                <NFormItem label="服务名称">
+                  <NInput v-model:value="formData.serviceName" size="large" placeholder="展示在登录页和用户中心的名称" />
+                </NFormItem>
+                <NFormItem label="OIDC Issuer">
+                  <NInput v-model:value="formData.issuer" size="large" placeholder="留空时可回退到当前域名" />
+                </NFormItem>
+              </NForm>
               <div class="panel-muted p-4">
                 <p class="eyebrow">说明</p>
                 <p class="mt-3 text-sm leading-6 text-[var(--text-secondary)]">Issuer 是 OIDC Discovery 的根地址，影响 Token 和 UserInfo 端点展示。</p>
@@ -155,16 +157,16 @@ async function proceed() {
             </div>
 
             <div v-else class="space-y-5">
-              <t-form :data="formData" label-align="top" class="space-y-4">
+              <NForm :model="formData" label-placement="top" class="space-y-4">
                 <div class="grid gap-4 md:grid-cols-2">
-                  <t-form-item label="管理员用户名"><t-input v-model="formData.username" size="large" /></t-form-item>
-                  <t-form-item label="管理员邮箱"><t-input v-model="formData.email" size="large" /></t-form-item>
+                  <NFormItem label="管理员用户名"><NInput v-model:value="formData.username" size="large" /></NFormItem>
+                  <NFormItem label="管理员邮箱"><NInput v-model:value="formData.email" size="large" /></NFormItem>
                 </div>
                 <div class="grid gap-4 md:grid-cols-2">
-                  <t-form-item label="密码"><t-input v-model="formData.password" type="password" size="large" /></t-form-item>
-                  <t-form-item label="确认密码"><t-input v-model="formData.confirmPassword" type="password" size="large" /></t-form-item>
+                  <NFormItem label="密码"><NInput v-model:value="formData.password" type="password" size="large" /></NFormItem>
+                  <NFormItem label="确认密码"><NInput v-model:value="formData.confirmPassword" type="password" size="large" /></NFormItem>
                 </div>
-              </t-form>
+              </NForm>
             </div>
           </div>
 
@@ -179,10 +181,10 @@ async function proceed() {
           </div>
 
           <div class="action-row mt-6">
-            <t-button v-if="currentStep > 0" variant="outline" size="large" class="!px-6" @click="currentStep -= 1">上一步</t-button>
-            <t-button theme="primary" size="large" :loading="submitting" class="!px-6" @click="proceed">
+            <NButton v-if="currentStep > 0" size="large" class="!px-6" @click="currentStep -= 1">上一步</NButton>
+            <NButton type="primary" size="large" :loading="submitting" class="!px-6" @click="proceed">
               {{ currentStep === steps.length - 1 ? '初始化并进入首页' : '下一步' }}
-            </t-button>
+            </NButton>
           </div>
         </section>
       </div>

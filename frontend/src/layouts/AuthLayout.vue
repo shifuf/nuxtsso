@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTheme } from '../composables/useTheme'
+import Icon from '../components/Icon.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -25,7 +26,7 @@ function toggleTheme() {
   <div class="auth-page">
     <header class="auth-portal-topbar">
       <button class="auth-portal-brand" type="button" @click="goHome()">
-        <span><t-icon name="secured" size="18px" /></span>
+        <span><Icon name="secured" size="18px" /></span>
         <strong>一证通行</strong>
       </button>
 
@@ -37,7 +38,7 @@ function toggleTheme() {
 
       <div class="auth-portal-actions">
         <button class="auth-icon-action" type="button" aria-label="切换主题" @click="toggleTheme">
-          <t-icon :name="resolvedTheme === 'dark' ? 'sunny' : 'moon'" size="18px" />
+          <Icon :name="resolvedTheme === 'dark' ? 'sunny' : 'moon'" size="18px" />
         </button>
         <button class="auth-text-action" type="button" @click="router.push(authStore.isAuthenticated ? userCenterPath : '/login')">
           {{ authStore.isAuthenticated ? '用户中心' : '登录' }}

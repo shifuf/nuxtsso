@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { NButton, NInput } from 'naive-ui'
+import { MessagePlugin } from '../utils/ui'
 import { authApi } from '../api/auth'
 import { useAuthStore } from '../stores/auth'
 import StatusTag from '../components/StatusTag.vue'
+import Icon from '../components/Icon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -142,14 +144,14 @@ async function handleBindExisting() {
         <div class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-muted)] p-5 space-y-4">
           <p class="text-sm font-semibold text-[var(--text-primary)]">绑定已有账号</p>
           <div v-if="!showBindForm">
-            <t-button theme="primary" class="lumina-primary-btn" @click="showBindForm = true">绑定已有账号</t-button>
+            <NButton type="primary" class="lumina-primary-btn" @click="showBindForm = true">绑定已有账号</NButton>
           </div>
           <div v-else class="space-y-4">
-            <t-input v-model="bindForm.username" size="large" placeholder="用户名或邮箱" />
-            <t-input v-model="bindForm.password" type="password" size="large" placeholder="密码" @keyup.enter="handleBindExisting" />
+            <NInput v-model:value="bindForm.username" size="large" placeholder="用户名或邮箱" />
+            <NInput v-model:value="bindForm.password" type="password" size="large" placeholder="密码" @keyup.enter="handleBindExisting" />
             <div class="action-row">
-              <t-button variant="outline" class="lumina-outline-btn" @click="showBindForm = false">取消</t-button>
-              <t-button theme="primary" class="lumina-primary-btn" :loading="submitting" @click="handleBindExisting">确认绑定</t-button>
+              <NButton class="lumina-outline-btn" @click="showBindForm = false">取消</NButton>
+              <NButton type="primary" class="lumina-primary-btn" :loading="submitting" @click="handleBindExisting">确认绑定</NButton>
             </div>
           </div>
         </div>
@@ -180,14 +182,14 @@ async function handleBindExisting() {
     </div>
 
     <div class="action-row mt-6 justify-center">
-      <t-button theme="primary" class="lumina-primary-btn" @click="router.push(authStore.isAuthenticated ? '/user/account' : '/login')">
+      <NButton type="primary" class="lumina-primary-btn" @click="router.push(authStore.isAuthenticated ? '/user/account' : '/login')">
         {{ authStore.isAuthenticated ? '进入用户中心' : '返回登录页' }}
-      </t-button>
+      </NButton>
     </div>
 
     <p class="mt-6 text-center text-[10px] font-black uppercase tracking-[0.2em] text-[var(--text-faint)]">
       <span class="inline-flex items-center gap-1.5">
-        <t-icon name="swap" size="12px" />
+        <Icon name="swap" size="12px" />
         Social Identity Provider Callback
       </span>
     </p>
