@@ -5,9 +5,23 @@ const { PrismaClient, UserRole, UserStatus, ApplicationStatus } = require('@pris
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
 
+class StablePrismaBetterSqlite3 extends PrismaBetterSqlite3 {
+  async connect() {
+    const adapter = await super.connect();
+    adapter.client.pragma('journal_mode = MEMORY');
+    return adapter;
+  }
+
+  async connectToShadowDb() {
+    const adapter = await super.connectToShadowDb();
+    adapter.client.pragma('journal_mode = MEMORY');
+    return adapter;
+  }
+}
+
 const prisma = new PrismaClient({
-  adapter: new PrismaBetterSqlite3({
-    url: process.env.DATABASE_URL || 'file:./prisma/dev.db',
+  adapter: new StablePrismaBetterSqlite3({
+    url: process.env.DATABASE_URL || 'file:./prisma/backend.db',
     timeout: 5000,
   }),
 });

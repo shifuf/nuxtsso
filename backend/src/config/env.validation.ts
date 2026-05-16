@@ -5,7 +5,7 @@ const envSchema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   PORT: z.coerce.number().default(3000),
-  DATABASE_URL: z.string().default('file:./prisma/dev.db'),
+  DATABASE_URL: z.string().default('file:./prisma/backend.db'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
   OIDC_ISSUER: z.string().default('http://localhost:3000'),
   OAUTH_CALLBACK_BASE_URL: z.string().optional(),
