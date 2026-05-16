@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({
     url: process.env.DATABASE_URL || 'file:./prisma/dev.db',
+    timeout: 5000,
   }),
 });
 

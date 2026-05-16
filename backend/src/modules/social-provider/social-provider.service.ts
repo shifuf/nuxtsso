@@ -70,6 +70,15 @@ function emptyStringToUndefined(value: unknown) {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
 }
 
+function isSqliteDeleteIoError(error: unknown) {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'SQLITE_IOERR_DELETE'
+  );
+}
+
 export class CreateSocialProviderDto {
   @IsString()
   name!: string;
@@ -95,14 +104,44 @@ export class SocialProviderService implements OnModuleInit {
 
   private async ensureDefaults() {
     const defaults = ['github', 'google', 'wechat', 'qq'];
-    for (const name of defaults) {
-      await this.prismaService.socialProvider.upsert({
-        where: { name },
-        update: {},
-        create: { name },
+
+    try {
+      const existing = await this.prismaService.socialProvider.findMany({
+        where: { name: { in: defaults } },
+        select: { name: true },
       });
+      const existingNames = new Set(existing.map((item) => item.name));
+
+      for (const name of defaults) {
+        if (existingNames.has(name)) {
+          continue;
+        }
+
+        try {
+          await this.prismaService.socialProvider.create({
+            data: { name },
+          });
+        } catch (error) {
+          if (isSqliteDeleteIoError(error)) {
+            this.logger.warn(
+              'Skipped creating missing default social providers because SQLite write access is unavailable.',
+            );
+            return;
+          }
+          throw error;
+        }
+      }
+
+      this.logger.log(`Ensured ${defaults.length} default social providers`);
+    } catch (error) {
+      if (isSqliteDeleteIoError(error)) {
+        this.logger.warn(
+          'Skipped default social provider initialization because SQLite database access is unstable on this machine.',
+        );
+        return;
+      }
+      throw error;
     }
-    this.logger.log(`Ensured ${defaults.length} default social providers`);
   }
 
   private toApi(provider: {

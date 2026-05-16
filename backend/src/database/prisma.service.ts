@@ -12,6 +12,7 @@ export class PrismaService
     super({
       adapter: new PrismaBetterSqlite3({
         url: process.env.DATABASE_URL ?? 'file:./prisma/dev.db',
+        timeout: 5000,
       }),
     });
   }
