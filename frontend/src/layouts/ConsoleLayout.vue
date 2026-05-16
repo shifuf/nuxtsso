@@ -60,7 +60,7 @@ onMounted(() => { void bootstrapSession() })
     <!-- Mobile overlay -->
     <div
       v-if="mobileMenuOpen"
-      class="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-sm md:hidden"
+      class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm md:hidden"
       @click="mobileMenuOpen = false"
     />
 
@@ -69,7 +69,7 @@ onMounted(() => { void bootstrapSession() })
       <div class="sidebar-header">
         <BrandMark
           title="Nexus SSO"
-          subtitle="安全可信 · 状态清晰"
+          subtitle="安全可信"
           contrast
         />
         <button
@@ -105,24 +105,24 @@ onMounted(() => { void bootstrapSession() })
 
       <!-- Footer -->
       <div class="sidebar-footer">
-        <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div class="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
           <div class="user-card flex items-center gap-3">
-            <div class="grid h-11 w-11 place-items-center rounded-2xl bg-white/10 text-sm font-semibold text-white uppercase">
+            <div class="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-sm font-bold text-white uppercase">
               {{ userDisplayName[0] }}
             </div>
             <div class="sidebar-footer-info min-w-0">
               <p class="truncate text-sm font-semibold text-slate-100">{{ userDisplayName }}</p>
-              <p class="truncate text-xs text-slate-400">{{ authStore.user?.email || '—' }}</p>
+              <p class="truncate text-xs text-slate-500">{{ authStore.user?.email || '—' }}</p>
             </div>
           </div>
 
-          <div class="sidebar-footer-info mt-4 flex items-center justify-between">
-            <span class="text-xs text-slate-400">当前角色</span>
+          <div class="sidebar-footer-info mt-3 flex items-center justify-between">
+            <span class="text-xs text-slate-500">当前角色</span>
             <span class="tag tag-info">{{ isAdmin ? 'Admin' : 'User' }}</span>
           </div>
 
           <a
-            class="sidebar-footer-info nav-link mt-3 cursor-pointer text-red-400 hover:text-red-300"
+            class="sidebar-footer-info nav-link mt-3 cursor-pointer text-red-400 hover:text-red-300 hover:bg-red-500/10"
             @click.prevent="logout"
           >
             <t-icon name="logout" size="16px" />
@@ -135,9 +135,9 @@ onMounted(() => { void bootstrapSession() })
     <!-- Main -->
     <main class="console-main">
       <header class="console-topbar">
-        <div class="flex min-w-0 items-start gap-3">
+        <div class="flex min-w-0 items-center gap-3">
           <button
-            class="mobile-nav-toggle panel-muted focus-ring inline-flex h-10 w-10 items-center justify-center rounded-2xl border-0 bg-transparent text-[var(--text-primary)]"
+            class="mobile-nav-toggle focus-ring inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-primary)] bg-transparent text-[var(--text-primary)]"
             aria-label="打开导航"
             @click="mobileMenuOpen = !mobileMenuOpen"
           >
@@ -145,20 +145,24 @@ onMounted(() => { void bootstrapSession() })
           </button>
 
           <div class="min-w-0">
-            <h1 class="truncate text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+            <h1 class="truncate text-lg font-bold tracking-[-0.02em] text-[var(--text-primary)]">
               {{ route.meta.title }}
             </h1>
           </div>
         </div>
 
-        <div class="page-actions">
+        <div class="page-actions console-topbar-actions">
+          <div id="console-route-actions" class="console-route-actions"></div>
           <ThemeSwitch />
         </div>
       </header>
 
       <div class="console-body">
         <section v-if="bootstrapping" class="flex min-h-[300px] items-center justify-center text-[var(--text-muted)]">
-          同步会话中...
+          <div class="flex items-center gap-3">
+            <t-icon name="loading" size="20px" class="animate-spin" />
+            <span class="text-sm font-medium">同步会话中...</span>
+          </div>
         </section>
         <router-view v-else />
       </div>

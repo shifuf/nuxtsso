@@ -1,4 +1,4 @@
-/* ── Page Layout & Misc Patterns ── */
+/* ── Page Layout & Misc Patterns (Lumina Auth parity) ── */
 
 /* Page Header */
 .page-header {
@@ -12,57 +12,52 @@
 .page-title {
   margin: 8px 0 0;
   color: var(--text-primary);
-  font-size: clamp(26px, 2.5vw, 34px);
-  font-weight: 700;
+  font-size: clamp(24px, 2.5vw, 30px);
+  font-weight: 900;
   letter-spacing: -0.04em;
-  animation: fadeInUp 0.4s ease-out;
 }
 
 .page-copy {
   margin: 10px 0 0;
   max-width: 760px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.7;
-  animation: fadeIn 0.5s ease-out;
-  animation-delay: 0.1s;
-  animation-fill-mode: both;
 }
 
 .page-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 /* Timeline */
 .timeline-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .timeline-item {
   position: relative;
-  padding: 0 0 0 18px;
+  padding: 0 0 0 16px;
 
   &::before {
     content: '';
     position: absolute;
     left: 0;
-    top: 6px;
-    width: 8px;
-    height: 8px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 999px;
     background: var(--accent);
-    box-shadow: 0 0 0 6px rgba(0, 82, 255, 0.08);
-    transition: all 200ms ease;
+    box-shadow: 0 0 0 5px var(--accent-soft);
   }
 
   &:hover::before {
-    transform: scale(1.3);
-    box-shadow: 0 0 0 8px rgba(0, 82, 255, 0.12);
+    opacity: 0.85;
   }
 }
 
@@ -84,10 +79,7 @@
 .action-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  animation: fadeIn 0.6s ease-out;
-  animation-delay: 0.4s;
-  animation-fill-mode: both;
+  gap: 10px;
 }
 
 /* Policy & Stack Lists */
@@ -95,7 +87,7 @@
 .stack-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .stack-item {
@@ -104,6 +96,10 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
 }
 
 /* Metadata Pre Block */
@@ -116,6 +112,6 @@
   border: 1px solid var(--border-primary);
   color: var(--text-secondary);
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.6;
 }

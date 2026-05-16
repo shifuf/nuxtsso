@@ -338,185 +338,252 @@ function handleSecondaryAction() {
 </script>
 
 <template>
-  <div :class="isAuthorizeOnly ? 'auth-centered' : oauthCtx ? 'auth-grid' : 'auth-centered'">
-    <section class="panel-card auth-card relative overflow-hidden">
-      <div class="page-header">
-        <div>
-          <p v-if="!isAuthorizeOnly" class="eyebrow">身份入口</p>
-          <h1 class="page-title">{{ titleMap[mode] }}</h1>
-          <p class="page-copy">{{ descriptionMap[mode] }}</p>
-        </div>
-        <div v-if="!isAuthorizeOnly" class="mode-switch">
-          <button :class="['mode-pill', mode === 'password' && 'is-active']" @click="mode = 'password'">密码登录</button>
-          <button v-if="showEmailTab" :class="['mode-pill', mode === 'email' && 'is-active']" @click="mode = 'email'">验证码登录</button>
-          <button v-if="showRegisterTab" :class="['mode-pill', mode === 'register' && 'is-active']" @click="mode = 'register'">注册</button>
-          <button v-if="showResetTab" :class="['mode-pill', mode === 'reset' && 'is-active']" @click="mode = 'reset'">找回密码</button>
-          <button v-if="showAuthorizeTab" :class="['mode-pill', mode === 'authorize' && 'is-active']" @click="mode = 'authorize'">授权确认</button>
-        </div>
+  <div :class="['lumina-login', isAuthorizeOnly && 'lumina-login--authorize']">
+    <section class="lumina-card" aria-label="Lumina login panel">
+      <div class="lumina-brand">
+        <div class="lumina-brand__mark">L</div>
+        <span class="lumina-brand__text">LUMINA</span>
       </div>
 
-      <div class="section-divider mt-6 pt-6">
-        <!-- Password -->
-        <div v-if="mode === 'password'" class="space-y-5">
-          <t-form :data="credentialsForm" label-align="top" class="space-y-4">
-            <t-form-item label="用户名 / 邮箱">
-              <t-input v-model="credentialsForm.account" size="large" placeholder="输入用户名或邮箱" @keyup.enter="handlePasswordLogin" />
-            </t-form-item>
-            <t-form-item label="密码">
-              <t-input v-model="credentialsForm.password" type="password" size="large" placeholder="输入密码" @keyup.enter="handlePasswordLogin" />
-            </t-form-item>
-          </t-form>
+      <header class="lumina-heading">
+        <h1>{{ titleMap[mode] }}</h1>
+        <p>{{ descriptionMap[mode] }}</p>
+      </header>
 
-          <!-- Third-party login icons -->
-          <div v-if="enabledProviders.length > 0" class="space-y-3">
-            <div class="flex items-center gap-2">
-              <span class="h-px flex-1 bg-[var(--border-primary)]"></span>
-              <span class="text-xs text-[var(--text-muted)]">第三方登录</span>
-              <span class="h-px flex-1 bg-[var(--border-primary)]"></span>
+      <div v-if="showAuthorizeTab && mode !== 'authorize'" class="lumina-context">
+        <span>AUTH CONTEXT</span>
+        <button type="button" @click="mode = 'authorize'">授权确认</button>
+      </div>
+
+      <form class="lumina-form" @submit.prevent="handlePrimaryAction">
+        <template v-if="mode === 'password'">
+          <div class="lumina-field">
+            <label>EMAIL ADDRESS</label>
+            <div class="lumina-input">
+              <span>@</span>
+              <input
+                v-model="credentialsForm.account"
+                autocomplete="username"
+                placeholder="name@company.com / username"
+                type="text"
+              />
             </div>
-            <div class="flex flex-wrap justify-center gap-4">
-              <button
-                v-for="provider in enabledProviders"
-                :key="provider.name"
-                class="social-icon-btn"
-                :title="providerLabel(provider.name)"
-                @click="handleSocialLogin(provider.name)"
-              >
-                <span class="social-icon-svg" v-html="providerSvg(provider.name)"></span>
-                <span class="social-icon-label">{{ providerLabel(provider.name) }}</span>
+          </div>
+
+          <div class="lumina-field">
+            <div class="lumina-label-row">
+              <label>PASSWORD</label>
+              <button v-if="showResetTab" type="button" @click="mode = 'reset'">Forgot?</button>
+            </div>
+            <div class="lumina-input">
+              <span>*</span>
+              <input
+                v-model="credentialsForm.password"
+                autocomplete="current-password"
+                placeholder="••••••••"
+                type="password"
+              />
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="mode === 'email'">
+          <div class="lumina-field">
+            <label>EMAIL ADDRESS</label>
+            <div class="lumina-input">
+              <span>@</span>
+              <input v-model="emailForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <div class="lumina-label-row">
+              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <button type="button" :disabled="sendingCode" @click="handleSendCode('login')">
+                {{ sendingCode ? 'Sending...' : 'Resend?' }}
               </button>
             </div>
-          </div>
-        </div>
-
-        <!-- Email -->
-        <div v-else-if="mode === 'email'" class="space-y-5">
-          <t-form :data="emailForm" label-align="top" class="space-y-4">
-            <t-form-item label="邮箱地址">
-              <t-input v-model="emailForm.email" size="large" placeholder="输入接收验证码的邮箱" />
-            </t-form-item>
-            <t-form-item label="邮箱验证码">
-              <div class="flex flex-col gap-3 sm:flex-row">
-                <t-input v-model="emailForm.code" size="large" placeholder="输入 6 位验证码" @keyup.enter="handleEmailLogin" />
-                <t-button variant="outline" :loading="sendingCode" class="!h-11 !px-5" @click="handleSendCode('login')">发送验证码</t-button>
-              </div>
-            </t-form-item>
-          </t-form>
-        </div>
-
-        <!-- Register -->
-        <div v-else-if="mode === 'register'" class="space-y-5">
-          <div class="rounded-2xl border border-[rgba(0,82,255,0.12)] bg-[var(--accent-soft)] p-4">
-            <div class="flex flex-wrap items-center gap-2">
-              <StatusTag tone="info" label="OAuth 注册" />
-              <StatusTag v-if="oauthCtx" tone="success" label="上下文已校验" />
+            <div class="lumina-input">
+              <span>#</span>
+              <input v-model="emailForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
             </div>
-            <p class="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-              当前由 <span class="font-semibold text-[var(--text-primary)]">{{ oauthCtx?.clientName || '未知应用' }}</span> 发起授权注册。
-            </p>
           </div>
-          <t-form :data="registerForm" label-align="top" class="space-y-4">
-            <t-form-item v-if="requireEmailVerification" label="邮箱地址"><t-input v-model="registerForm.email" size="large" /></t-form-item>
-            <t-form-item v-if="requireEmailVerification" label="邮箱验证码">
-              <div class="flex flex-col gap-3 sm:flex-row">
-                <t-input v-model="registerForm.code" size="large" />
-                <t-button variant="outline" :loading="sendingCode" class="!h-11 !px-5" @click="handleSendCode('register')">发送验证码</t-button>
-              </div>
-            </t-form-item>
-            <t-form-item label="用户名"><t-input v-model="registerForm.username" size="large" /></t-form-item>
-            <div class="grid gap-4 md:grid-cols-2">
-              <t-form-item label="设置密码"><t-input v-model="registerForm.password" type="password" size="large" /></t-form-item>
-              <t-form-item label="确认密码"><t-input v-model="registerForm.confirmPassword" type="password" size="large" /></t-form-item>
+        </template>
+
+        <template v-else-if="mode === 'register'">
+          <div v-if="oauthCtx" class="lumina-oauth-note">
+            <div>
+              <StatusTag tone="info" label="OAuth Register" />
+              <StatusTag tone="success" label="Verified" />
             </div>
-          </t-form>
-        </div>
+            <p>当前由 {{ oauthCtx.clientName || '未知应用' }} 发起授权注册。</p>
+          </div>
 
-        <!-- Reset -->
-        <div v-else-if="mode === 'reset'" class="space-y-5">
-          <t-form :data="resetForm" label-align="top" class="space-y-4">
-            <t-form-item label="邮箱地址"><t-input v-model="resetForm.email" size="large" /></t-form-item>
-            <t-form-item label="验证码">
-              <div class="flex flex-col gap-3 sm:flex-row">
-                <t-input v-model="resetForm.code" size="large" />
-                <t-button variant="outline" :loading="sendingCode" class="!h-11 !px-5" @click="handleSendCode('reset-password')">发送验证码</t-button>
-              </div>
-            </t-form-item>
-            <t-form-item label="新密码"><t-input v-model="resetForm.password" type="password" size="large" /></t-form-item>
-          </t-form>
-        </div>
+          <div v-if="requireEmailVerification" class="lumina-field">
+            <label>EMAIL ADDRESS</label>
+            <div class="lumina-input">
+              <span>@</span>
+              <input v-model="registerForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+            </div>
+          </div>
 
-        <!-- Authorize -->
-        <div v-else-if="mode === 'authorize' && oauthCtx" class="space-y-5">
-          <div class="panel-muted p-5">
-            <div class="flex flex-wrap items-center justify-between gap-3">
+          <div v-if="requireEmailVerification" class="lumina-field">
+            <div class="lumina-label-row">
+              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <button type="button" :disabled="sendingCode" @click="handleSendCode('register')">
+                {{ sendingCode ? 'Sending...' : 'Resend?' }}
+              </button>
+            </div>
+            <div class="lumina-input">
+              <span>#</span>
+              <input v-model="registerForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <label>FULL NAME</label>
+            <div class="lumina-input">
+              <span>ID</span>
+              <input v-model="registerForm.username" autocomplete="username" placeholder="Enter your name" type="text" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <label>PASSWORD</label>
+            <div class="lumina-input">
+              <span>*</span>
+              <input v-model="registerForm.password" autocomplete="new-password" placeholder="••••••••" type="password" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <label>CONFIRM PASSWORD</label>
+            <div class="lumina-input">
+              <span>*</span>
+              <input v-model="registerForm.confirmPassword" autocomplete="new-password" placeholder="••••••••" type="password" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="mode === 'reset'">
+          <div class="lumina-field">
+            <label>EMAIL ADDRESS</label>
+            <div class="lumina-input">
+              <span>@</span>
+              <input v-model="resetForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <div class="lumina-label-row">
+              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <button type="button" :disabled="sendingCode" @click="handleSendCode('reset-password')">
+                {{ sendingCode ? 'Sending...' : 'Resend?' }}
+              </button>
+            </div>
+            <div class="lumina-input">
+              <span>#</span>
+              <input v-model="resetForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
+            </div>
+          </div>
+
+          <div class="lumina-field">
+            <label>NEW SECURE PASSWORD</label>
+            <div class="lumina-input">
+              <span>*</span>
+              <input v-model="resetForm.password" autocomplete="new-password" placeholder="••••••••" type="password" />
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="mode === 'authorize' && oauthCtx">
+          <div class="lumina-authorize">
+            <div class="lumina-authorize__head">
               <div>
-                <p class="eyebrow">待授权应用</p>
-                <h2 class="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{{ oauthCtx.clientName }}</h2>
+                <span>APPLICATION</span>
+                <h2>{{ oauthCtx.clientName }}</h2>
               </div>
               <StatusTag tone="info" :label="oauthCtx.clientId" />
             </div>
-            <p class="mt-4 text-sm leading-7 text-[var(--text-secondary)]">{{ oauthCtx.description }}</p>
-          </div>
-          <div class="space-y-3">
-            <div class="flex flex-wrap gap-2">
-              <span v-for="scope in oauthCtx.requestedScopes" :key="scope" class="token-chip font-mono">{{ scope }}</span>
+            <p>{{ oauthCtx.description }}</p>
+            <div class="lumina-scope-list">
+              <span v-for="scope in oauthCtx.requestedScopes" :key="scope">{{ scope }}</span>
             </div>
-            <div class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-muted)] p-4">
-              <p class="eyebrow">回调地址</p>
-              <p class="mt-3 break-all font-mono text-sm text-[var(--text-secondary)]">{{ oauthCtx.redirectUri }}</p>
-            </div>
+            <code>{{ oauthCtx.redirectUri }}</code>
           </div>
-        </div>
+        </template>
 
-        <!-- Restricted -->
-        <div v-else class="space-y-5">
-          <div class="rounded-2xl border border-[rgba(220,38,38,0.15)] bg-[rgba(239,68,68,0.08)] p-5">
-            <div class="flex items-center gap-3">
-              <div class="grid h-12 w-12 place-items-center rounded-2xl bg-[rgba(239,68,68,0.12)] text-[var(--danger)]">
-                <t-icon name="error-circle-filled" size="22px" />
-              </div>
-              <div>
-                <h2 class="text-lg font-semibold text-[var(--text-primary)]">应用校验失败</h2>
-                <p class="mt-1 text-sm text-[var(--text-muted)]">回调地址、Client ID 或注册策略不满足当前访问条件。</p>
-              </div>
-            </div>
+        <template v-else>
+          <div class="lumina-restricted">
+            <strong>应用校验失败</strong>
+            <p>回调地址、Client ID 或注册策略不满足当前访问条件。</p>
           </div>
-        </div>
-      </div>
+        </template>
 
-      <div class="action-row mt-6">
-        <t-button theme="primary" size="large" :loading="submitting" class="!px-6" @click="handlePrimaryAction">
+        <button class="lumina-submit" type="submit" :disabled="submitting">
+          <span v-if="submitting" class="lumina-spinner" aria-hidden="true"></span>
           {{ primaryActionLabel }}
-        </t-button>
-        <t-button variant="outline" size="large" class="!px-6" @click="handleSecondaryAction">
-          {{ mode === 'authorize' ? '拒绝' : mode === 'register' ? '切换到登录' : mode === 'reset' ? '返回登录' : '忘记密码' }}
-        </t-button>
-      </div>
+          <span aria-hidden="true">-&gt;</span>
+        </button>
+
+        <button
+          v-if="mode === 'authorize'"
+          class="lumina-secondary"
+          type="button"
+          @click="handleSecondaryAction"
+        >
+          拒绝授权
+        </button>
+
+        <div v-if="mode !== 'authorize' && mode !== 'restricted'" class="lumina-mode-grid">
+          <button
+            v-if="showEmailTab"
+            type="button"
+            @click="mode = mode === 'email' ? 'password' : 'email'"
+          >
+            {{ mode === 'email' ? 'Password Login' : 'Magic Code (OTP)' }}
+          </button>
+          <button
+            v-if="showRegisterTab"
+            type="button"
+            @click="mode = mode === 'register' ? 'password' : 'register'"
+          >
+            {{ mode === 'register' ? 'Existing Account' : 'New Identity' }}
+          </button>
+        </div>
+
+        <template v-if="enabledProviders.length > 0 && mode !== 'authorize' && mode !== 'restricted'">
+          <div class="lumina-divider">
+            <span></span>
+            <p>Or continue with</p>
+            <span></span>
+          </div>
+
+          <div class="social-grid">
+            <button
+              v-for="provider in enabledProviders"
+              :key="provider.name"
+              class="social-icon-btn"
+              type="button"
+              :title="providerLabel(provider.name)"
+              @click="handleSocialLogin(provider.name)"
+            >
+              <span class="social-icon-svg" v-html="providerSvg(provider.name)"></span>
+              <span class="social-icon-label">{{ providerLabel(provider.name) }}</span>
+            </button>
+          </div>
+        </template>
+
+        <p v-if="showRegisterTab && mode !== 'authorize' && mode !== 'restricted'" class="lumina-foot-action">
+          {{ mode === 'register' ? 'Already have an account?' : 'New to Lumina?' }}
+          <button type="button" @click="mode = mode === 'register' ? 'password' : 'register'">
+            {{ mode === 'register' ? 'Sign In' : 'Create Account' }}
+          </button>
+        </p>
+      </form>
     </section>
 
-    <aside v-if="oauthCtx && !isAuthorizeOnly" class="space-y-6">
-      <section class="panel-contrast auth-card" style="animation-delay: 0.3s;">
-        <p class="eyebrow !text-slate-400">应用上下文</p>
-        <h2 class="mt-3 text-3xl font-display text-white">来自 {{ oauthCtx.clientName }}</h2>
-        <p class="mt-4 text-sm leading-7 text-slate-300">认证中心会根据 client_id 和 redirect_uri 决定登录与注册流程。</p>
-        <div class="stack-list mt-6">
-          <div class="panel-muted stack-item !bg-white/6 !border-white/10">
-            <div>
-              <p class="text-xs uppercase tracking-[0.14em] text-slate-400">Client ID</p>
-              <p class="mt-2 font-mono text-sm text-slate-100">{{ oauthCtx.clientId }}</p>
-            </div>
-            <StatusTag tone="info" label="OAuth 2.0" />
-          </div>
-          <div class="panel-muted stack-item !bg-white/6 !border-white/10">
-            <div>
-              <p class="text-xs uppercase tracking-[0.14em] text-slate-400">注册策略</p>
-              <p class="mt-2 text-sm text-slate-100">{{ oauthCtx.allowRegistration ? '允许注册' : '仅登录' }}</p>
-            </div>
-            <StatusTag :tone="oauthCtx.allowRegistration ? 'success' : 'neutral'" :label="oauthCtx.allowRegistration ? 'allowRegistration' : 'loginOnly'" />
-          </div>
-        </div>
-      </section>
-    </aside>
+    <div class="lumina-copyright">© 2026 LUMINA IDENTITY SYSTEMS PRO</div>
 
     <t-dialog
       v-model:visible="socialQrVisible"
@@ -526,18 +593,23 @@ function handleSecondaryAction() {
       @close="resetSocialQr"
     >
       <div class="space-y-4 pt-2 text-center">
-        <div class="relative mx-auto grid min-h-[250px] w-[250px] place-items-center rounded-3xl border border-[var(--border-primary)] bg-white p-3">
+        <div class="relative mx-auto grid min-h-[260px] w-[260px] place-items-center rounded-3xl border border-[var(--border-primary)] bg-white p-3">
           <img v-if="socialQrDisplayUrl" :src="socialQrDisplayUrl" alt="第三方授权二维码" class="h-[230px] w-[230px] rounded-2xl object-contain" @error="handleSocialQrImageError" />
-          <div v-else class="grid h-[230px] w-[230px] place-items-center rounded-2xl bg-slate-50 text-sm text-slate-500">二维码生成中...</div>
+          <div v-else class="grid h-[230px] w-[230px] place-items-center rounded-2xl bg-slate-50 text-sm text-slate-500">
+            <div class="space-y-2">
+              <div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent"></div>
+              <p>二维码生成中...</p>
+            </div>
+          </div>
           <div
             v-if="socialQrStatus === 'success' || socialQrStatus === 'failed' || socialQrStatus === 'expired'"
             class="absolute inset-3 grid place-items-center rounded-2xl bg-white/92 backdrop-blur-sm"
           >
-            <div class="space-y-2">
+            <div class="space-y-3">
               <div
                 :class="[
-                  'mx-auto grid h-14 w-14 place-items-center rounded-2xl text-2xl font-bold text-white',
-                  socialQrStatus === 'success' ? 'bg-[var(--success)]' : 'bg-[var(--danger)]'
+                  'mx-auto grid h-16 w-16 place-items-center rounded-2xl text-2xl font-bold text-white',
+                  socialQrStatus === 'success' ? 'bg-[var(--success)] shadow-xl shadow-emerald-500/20' : 'bg-[var(--danger)] shadow-xl shadow-rose-500/20'
                 ]"
               >
                 {{ socialQrStatus === 'success' ? '✓' : '!' }}
@@ -551,8 +623,8 @@ function handleSecondaryAction() {
         <p class="text-sm font-semibold text-[var(--text-primary)]">{{ socialQrMessage }}</p>
         <p v-if="socialQrStatus === 'pending'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，本页面会自动监听结果。</p>
         <div v-if="socialQrStatus === 'failed' || socialQrStatus === 'expired'" class="action-row justify-center">
-          <t-button variant="outline" @click="socialQrVisible = false; resetSocialQr()">关闭</t-button>
-          <t-button theme="primary" @click="handleSocialLogin(socialQrProvider)">重新生成</t-button>
+          <t-button variant="outline" class="lumina-outline-btn" @click="socialQrVisible = false; resetSocialQr()">关闭</t-button>
+          <t-button theme="primary" class="lumina-primary-btn" @click="handleSocialLogin(socialQrProvider)">重新生成</t-button>
         </div>
       </div>
     </t-dialog>
@@ -560,9 +632,428 @@ function handleSecondaryAction() {
 </template>
 
 <style scoped>
-.auth-centered {
-  max-width: 520px;
-  margin: 0 auto;
+.lumina-login {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 480px);
+  padding: 8px;
+  animation: lumina-scale-in 0.5s var(--ease-lumina) both;
+}
+
+.lumina-login--authorize {
+  width: min(100%, 560px);
+}
+
+.lumina-card {
+  width: 100%;
+  padding: 32px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-secondary);
+  box-shadow: var(--shadow-card-hover);
+}
+
+:global(:root[data-app-theme='dark']) .lumina-card {
+  background: #0f172a;
+  border-color: rgba(148, 163, 184, 0.12);
+  box-shadow: 0 28px 80px -32px rgba(0, 0, 0, 0.75);
+}
+
+.lumina-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.lumina-brand__mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 18px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  box-shadow: var(--shadow-accent);
+}
+
+.lumina-brand__text {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.08em;
+}
+
+.lumina-heading {
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.lumina-heading h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+}
+
+.lumina-heading p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.lumina-context,
+.lumina-oauth-note,
+.lumina-authorize,
+.lumina-restricted {
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid rgba(50, 88, 255, 0.14);
+  border-radius: 1.25rem;
+  background: var(--accent-soft);
+}
+
+.lumina-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lumina-context span,
+.lumina-authorize__head span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+}
+
+.lumina-context button,
+.lumina-label-row button,
+.lumina-foot-action button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lumina-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.lumina-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lumina-field label,
+.lumina-label-row label {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lumina-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lumina-label-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lumina-input {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  transition:
+    border-color var(--duration-base) var(--ease-lumina),
+    box-shadow var(--duration-base) var(--ease-lumina),
+    background-color var(--duration-base) var(--ease-lumina);
+}
+
+.lumina-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(50, 88, 255, 0.10);
+}
+
+.lumina-input span {
+  width: 22px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+  transition: color 180ms ease;
+}
+
+.lumina-input:focus-within span {
+  color: var(--accent);
+}
+
+.lumina-input input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.lumina-input input::placeholder {
+  color: var(--text-faint);
+}
+
+.lumina-input input.is-code {
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.20em;
+}
+
+.lumina-submit,
+.lumina-secondary,
+.lumina-mode-grid button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 1rem;
+  cursor: pointer;
+  font-weight: 900;
+  transition:
+    transform var(--duration-fast) var(--ease-lumina),
+    background-color var(--duration-fast) var(--ease-lumina),
+    color var(--duration-fast) var(--ease-lumina),
+    opacity var(--duration-fast) var(--ease-lumina),
+    box-shadow var(--duration-fast) var(--ease-lumina);
+}
+
+.lumina-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 20px 42px -22px rgba(50, 88, 255, 0.65);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.lumina-submit:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 24px 48px -22px rgba(50, 88, 255, 0.75);
+}
+
+.lumina-submit:active,
+.lumina-secondary:active,
+.lumina-mode-grid button:active,
+.social-icon-btn:active {
+  transform: scale(0.95);
+}
+
+.lumina-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
+.lumina-secondary {
+  border: 1px solid var(--border-primary);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.lumina-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.lumina-mode-grid button {
+  background: var(--surface-muted);
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.lumina-mode-grid button:hover,
+.lumina-foot-action button:hover {
+  color: var(--accent);
+}
+
+.lumina-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.lumina-divider span {
+  height: 1px;
+  flex: 1;
+  background: var(--border-primary);
+}
+
+.lumina-divider p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lumina-foot-action {
+  margin: 0;
+  padding-top: 4px;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.lumina-foot-action button {
+  margin-left: 8px;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lumina-oauth-note div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lumina-oauth-note p,
+.lumina-restricted p {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.lumina-authorize {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lumina-authorize__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lumina-authorize h2 {
+  margin: 6px 0 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+}
+
+.lumina-authorize p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+.lumina-authorize code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 0.9rem;
+  background: var(--surface-primary);
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.lumina-scope-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lumina-scope-list span {
+  padding: 6px 10px;
+  border: 1px solid rgba(50, 88, 255, 0.18);
+  border-radius: 10px;
+  background: rgba(50, 88, 255, 0.08);
+  color: var(--accent);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lumina-restricted {
+  border-color: rgba(244, 63, 94, 0.20);
+  background: rgba(244, 63, 94, 0.10);
+}
+
+.lumina-restricted strong {
+  color: var(--danger);
+  font-size: 16px;
+}
+
+.lumina-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: lumina-spin 0.8s linear infinite;
+}
+
+.lumina-copyright {
+  margin-top: 32px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.20em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.social-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 12px;
 }
 
 .social-icon-btn {
@@ -570,33 +1061,90 @@ function handleSecondaryAction() {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px;
-  border-radius: 14px;
+  padding: 16px 8px;
+  border-radius: 1rem;
   border: 1px solid var(--border-primary);
-  background: var(--surface-muted);
+  background: transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 64px;
+  transition: all 200ms ease;
+  min-width: 0;
 }
+
 .social-icon-btn:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  transform: translateY(-2px);
+  border-color: rgba(50, 88, 255, 0.22);
+  background: var(--surface-muted);
+  transform: scale(1.05);
 }
+
 .social-icon-svg {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 22px;
+  height: 22px;
+  color: var(--text-muted);
 }
+
 .social-icon-svg :deep(svg) {
   width: 100%;
   height: 100%;
 }
+
 .social-icon-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--text-faint);
   text-align: center;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+:deep(.lumina-outline-btn) {
+  border-radius: 1rem !important;
+  font-weight: 700 !important;
+  transition: all 150ms ease !important;
+}
+:deep(.lumina-outline-btn:hover) {
+  transform: translateY(-1px) !important;
+}
+:deep(.lumina-outline-btn:active) {
+  transform: scale(0.95) !important;
+}
+
+@keyframes lumina-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes lumina-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 520px) {
+  .lumina-login {
+    padding: 0;
+  }
+
+  .lumina-card {
+    padding: 24px;
+    border-radius: 2rem;
+  }
+
+  .lumina-brand {
+    margin-bottom: 30px;
+  }
+
+  .lumina-heading {
+    margin-bottom: 30px;
+  }
+
+  .lumina-heading h1 {
+    font-size: 26px;
+  }
 }
 </style>

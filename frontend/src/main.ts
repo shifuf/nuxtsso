@@ -6,6 +6,21 @@ import App from './App.vue';
 import router from './router';
 import './styles/main.scss';
 
+const THEME_STORAGE_KEY = 'nexus-sso-theme-mode';
+const applyInitialTheme = () => {
+  const root = document.documentElement;
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+  const next = mode === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : mode;
+
+  root.removeAttribute('theme-mode');
+  root.setAttribute('data-app-theme', next);
+};
+
+applyInitialTheme();
+
 // Patch: make scroll-blocking events passive to avoid Chrome Violation warnings
 const PASSIVE_EVENTS = new Set(['touchstart', 'touchmove', 'wheel', 'mousewheel']);
 const origAddEventListener = EventTarget.prototype.addEventListener;

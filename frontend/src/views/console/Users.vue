@@ -577,32 +577,33 @@ async function bindToUser() {
                   </td>
                   <td>
                     <div class="flex gap-1.5 flex-wrap">
-                      <t-button variant="outline" size="small" @click="openEdit(item)">编辑</t-button>
+                      <t-button variant="outline" size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</t-button>
                       <t-button
                         variant="outline"
                         size="small"
-                        :theme="item.status === 'active' ? 'warning' : 'success'"
+                        :class="['action-tag', item.status === 'active' ? 'action-disable' : 'action-enable']"
                         :disabled="isAdminUser(item)"
                         @click="toggleStatus(item)"
                       >{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
-                      <t-button variant="outline" size="small" @click="openPasswordReset(item.id)">重置密码</t-button>
+                      <t-button variant="outline" size="small" class="action-tag action-reset" @click="openPasswordReset(item.id)">重置密码</t-button>
                       <t-button
                         v-if="isRegularUser(item)"
                         variant="outline"
                         size="small"
+                        class="action-tag action-bind"
                         @click="openSocialBind(item)"
                       >绑定三方</t-button>
                       <t-button
                         v-if="isSocialUser(item) && !item.boundToUser"
                         variant="outline"
                         size="small"
-                        theme="primary"
+                        class="action-tag action-bind"
                         @click="openUserBind(item)"
                       >绑定用户</t-button>
                       <t-button
                         variant="outline"
                         size="small"
-                        theme="danger"
+                        class="action-tag action-delete"
                         :disabled="hasDeleteBlocker(item)"
                         :title="deleteBlockerText(item)"
                         @click="deleteUser(item)"
@@ -677,11 +678,11 @@ async function bindToUser() {
         <!-- Mode switch -->
         <div class="flex gap-2 rounded-2xl bg-[var(--surface-secondary)] p-1">
           <button
-            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-all', socialBindMode === 'input' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
+            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium', socialBindMode === 'input' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
             @click="switchSocialBindMode('input')"
           >输入三方 ID</button>
           <button
-            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-all', socialBindMode === 'qrcode' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
+            :class="['flex-1 rounded-xl px-4 py-2 text-sm font-medium', socialBindMode === 'qrcode' ? 'bg-[var(--surface-primary)] text-[var(--text-primary)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]']"
             @click="switchSocialBindMode('qrcode')"
           >扫码绑定</button>
         </div>
@@ -694,7 +695,7 @@ async function bindToUser() {
             <div
               v-for="sa in filteredSocialAccounts"
               :key="sa.id"
-              :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedSocial?.id === sa.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+              :class="['rounded-2xl border px-4 py-3 cursor-pointer', selectedSocial?.id === sa.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
               @click="selectedSocial = sa"
             >
               <div class="flex items-center justify-between gap-3">
@@ -733,7 +734,7 @@ async function bindToUser() {
               <div
                 v-for="p in enabledProviders"
                 :key="p.name"
-                :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedQrProvider?.name === p.name ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+                :class="['rounded-2xl border px-4 py-3 cursor-pointer', selectedQrProvider?.name === p.name ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
                 @click="selectQrProvider(p)"
               >
                 <p class="text-sm font-semibold text-[var(--text-primary)]">{{ p.name }}</p>
@@ -797,7 +798,7 @@ async function bindToUser() {
           <div
             v-for="candidate in bindableUsers"
             :key="candidate.id"
-            :class="['rounded-2xl border px-4 py-3 cursor-pointer transition-all', selectedBindUser?.id === candidate.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
+            :class="['rounded-2xl border px-4 py-3 cursor-pointer', selectedBindUser?.id === candidate.id ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-primary)] bg-[var(--surface-primary)] hover:border-[var(--border-strong)]']"
             @click="selectedBindUser = candidate"
           >
             <div class="flex items-center justify-between gap-3">

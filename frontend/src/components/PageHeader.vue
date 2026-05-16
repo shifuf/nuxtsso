@@ -13,15 +13,7 @@ withDefaults(
 </script>
 
 <template>
-  <div class="page-header">
-    <div>
-      <p v-if="eyebrow" class="eyebrow">{{ eyebrow }}</p>
-      <h1 class="page-title">{{ title }}</h1>
-      <p v-if="description" class="page-copy">{{ description }}</p>
-    </div>
-
-    <div v-if="$slots.actions" class="page-actions">
-      <slot name="actions" />
-    </div>
-  </div>
+  <Teleport v-if="$slots.actions" to="#console-route-actions">
+    <slot name="actions" />
+  </Teleport>
 </template>

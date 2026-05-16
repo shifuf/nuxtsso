@@ -15,8 +15,14 @@ const applyTheme = (mode: ThemeMode) => {
   if (typeof window === 'undefined') return
 
   const next = mode === 'system' ? getSystemTheme() : mode
+  const root = document.documentElement
+  const current = root.getAttribute('data-app-theme')
+
   resolvedTheme.value = next
-  document.documentElement.setAttribute('theme-mode', next)
+  root.removeAttribute('theme-mode')
+  if (current !== next) {
+    root.setAttribute('data-app-theme', next)
+  }
   window.localStorage.setItem(STORAGE_KEY, mode)
 }
 
@@ -44,6 +50,7 @@ export const useTheme = () => {
   })
 
   const setTheme = (mode: ThemeMode) => {
+    if (theme.value === mode) return
     theme.value = mode
     applyTheme(mode)
   }

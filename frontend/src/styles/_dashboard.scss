@@ -1,4 +1,4 @@
-/* ── Dashboard Grid System ── 12-column responsive */
+/* ── Dashboard Grid System (Lumina Auth parity) ── */
 
 .dash-grid {
   display: grid;
@@ -22,10 +22,13 @@
 .dash-panel {
   background: var(--surface-primary);
   border: 1px solid var(--border-primary);
-  border-radius: 20px;
-  box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(18px);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
   padding: 24px;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
 }
 
 .dash-panel-header {
@@ -39,8 +42,8 @@
 .dash-panel-title {
   color: var(--text-primary);
   font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-weight: 900;
+  letter-spacing: -0.04em;
   line-height: 1.35;
 }
 
@@ -51,7 +54,7 @@
   margin-top: 4px;
 }
 
-/* ── Metric Cards ── */
+/* ── Metric Cards (Lumina style) ── */
 .metric-grid {
   display: grid;
   gap: 16px;
@@ -61,26 +64,27 @@
 .metric-card {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 20px;
-  animation: fadeInUp 0.4s ease-out;
+  gap: 16px;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
 
-  &:nth-child(1) { animation-delay: 0.1s; }
-  &:nth-child(2) { animation-delay: 0.2s; }
-  &:nth-child(3) { animation-delay: 0.3s; }
-  &:nth-child(4) { animation-delay: 0.4s; }
+  &:hover {
+    border-color: var(--border-strong);
+  }
 }
 
 .metric-value {
   color: var(--text-primary);
-  font-size: 32px;
-  font-weight: 700;
+  font-size: 36px;
+  font-weight: 900;
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
 }
 
 .metric-caption {
   color: var(--text-muted);
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.5;
 }

@@ -1,0 +1,204 @@
+/* ── Performance Overrides ── */
+
+/*
+ * Console interactions must be immediate. Avoid universal selectors here:
+ * they make dialog open/close and theme switching trigger large style recalcs.
+ */
+:root {
+  --duration-fast: 0ms;
+  --duration-base: 0ms;
+  --duration-slow: 0ms;
+}
+
+.app-shell .animate-spin,
+.app-shell .t-loading,
+.app-shell .t-loading__gradient,
+.t-dialog__ctx .animate-spin,
+.t-dialog__ctx .t-loading,
+.t-dialog__ctx .t-loading__gradient {
+  animation-duration: 0.8s !important;
+}
+
+.app-shell,
+.console-main,
+.console-body,
+.console-topbar,
+.panel-card,
+.dash-panel,
+.metric-card,
+.app-card,
+.page-title,
+.page-copy,
+.action-row,
+.stack-item,
+.theme-switch,
+.brand-mark__logo,
+.token-chip,
+.mode-pill,
+.t-button,
+.t-input,
+.t-select-input,
+.t-textarea,
+.t-table tr,
+.t-tabs__nav-item {
+  transition: none !important;
+  animation: none !important;
+}
+
+.panel-card,
+.console-topbar,
+.theme-switch {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.panel-card,
+.dash-panel,
+.metric-card,
+.app-card {
+  contain: style;
+}
+
+.table-shell,
+.app-cards-grid {
+  contain: style;
+}
+
+.panel-card:hover,
+.dash-panel:hover,
+.metric-card:hover,
+.app-card:hover,
+.stack-item:hover,
+.token-chip:hover,
+.mode-pill:hover,
+.action-tag:hover,
+.t-button:hover {
+  transform: none !important;
+}
+
+.panel-card:hover,
+.dash-panel:hover,
+.metric-card:hover,
+.app-card:hover {
+  box-shadow: var(--shadow-card) !important;
+}
+
+.t-popup,
+.t-popup__content,
+.t-select__dropdown,
+.t-dropdown__menu,
+.t-dropdown__submenu,
+.t-picker__panel {
+  transition: none !important;
+  animation: none !important;
+}
+
+.t-dialog__ctx,
+.t-dialog__position,
+.t-dialog__wrap {
+  transition: none !important;
+}
+
+.t-dialog-zoom__vue-enter-active .t-dialog,
+.t-dialog-zoom__vue-leave-active .t-dialog {
+  animation-duration: 90ms !important;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.t-dialog-zoom__vue-enter-active .t-dialog__mask,
+.t-dialog-zoom__vue-leave-active .t-dialog__mask {
+  animation-duration: 80ms !important;
+}
+
+.t-dialog,
+.t-select-panel {
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* Final semantic action button colors. This file loads after TDesign overrides. */
+.t-button.action-tag {
+  min-width: auto !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  letter-spacing: 0 !important;
+  line-height: 28px !important;
+}
+
+.t-button.action-tag .t-button__text {
+  line-height: 1 !important;
+}
+
+.t-button.action-edit,
+.t-button.action-bind {
+  color: #3258ff !important;
+  background: rgba(50, 88, 255, 0.12) !important;
+  border-color: rgba(50, 88, 255, 0.26) !important;
+}
+
+.t-button.action-disable,
+.t-button.action-delete {
+  color: #e11d48 !important;
+  background: rgba(244, 63, 94, 0.13) !important;
+  border-color: rgba(244, 63, 94, 0.28) !important;
+}
+
+.t-button.action-reset {
+  color: #b45309 !important;
+  background: rgba(245, 158, 11, 0.16) !important;
+  border-color: rgba(245, 158, 11, 0.30) !important;
+}
+
+.t-button.action-enable {
+  color: #047857 !important;
+  background: rgba(16, 185, 129, 0.14) !important;
+  border-color: rgba(16, 185, 129, 0.28) !important;
+}
+
+.t-button.action-secret,
+.t-button.action-neutral {
+  color: var(--text-secondary) !important;
+  background: var(--surface-muted) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.t-button.action-tag:hover {
+  filter: brightness(0.98);
+}
+
+.t-button.action-tag.t-is-disabled {
+  color: var(--text-faint) !important;
+  background: var(--surface-muted) !important;
+  border-color: var(--border-primary) !important;
+  opacity: 0.55;
+}
+
+:root[data-app-theme='dark'] .t-button.action-edit,
+:root[data-app-theme='dark'] .t-button.action-bind {
+  color: #93b0ff !important;
+  background: rgba(77, 124, 255, 0.18) !important;
+  border-color: rgba(77, 124, 255, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .t-button.action-disable,
+:root[data-app-theme='dark'] .t-button.action-delete {
+  color: #fda4af !important;
+  background: rgba(244, 63, 94, 0.18) !important;
+  border-color: rgba(244, 63, 94, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .t-button.action-reset {
+  color: #fcd34d !important;
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .t-button.action-enable {
+  color: #86efac !important;
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.34) !important;
+}

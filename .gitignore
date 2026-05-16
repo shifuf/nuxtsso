@@ -1,4 +1,6 @@
 .ace-tool/
+.claude/
+
 test/
 docker-data/
 

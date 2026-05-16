@@ -21,8 +21,8 @@ const applications = ref<ApplicationItem[]>([])
 const createdApplication = ref<ApplicationCreateResponse | null>(null)
 
 const profileForm = ref({ username: '' })
-const avatarFile = ref<File | null>(null)
 const avatarPreview = ref('')
+const avatarUploadFiles = ref<Array<{ name?: string; url?: string; status?: 'success' | 'fail' | 'progress' | 'waiting'; raw?: File }>>([])
 const passwordForm = ref({ password: '', confirmPassword: '' })
 const showPasswordSection = ref(false)
 const showApplicationForm = ref(false)
@@ -97,6 +97,9 @@ async function loadData() {
     if (u) {
       profileForm.value.username = u.username || ''
       avatarPreview.value = u.avatar || ''
+      avatarUploadFiles.value = u.avatar
+        ? [{ name: 'avatar', url: u.avatar, status: 'success' }]
+        : []
     }
 
     socialProviderCount.value = bindings.value.length
@@ -118,28 +121,43 @@ async function saveProfile() {
   finally { saving.value = false }
 }
 
-function onAvatarChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  if (!file.type.startsWith('image/')) {
+function beforeAvatarUpload(file: { raw?: File; name?: string; size?: number; type?: string }) {
+  const target = file.raw
+  if (!target) return false
+  if (!target.type.startsWith('image/')) {
     MessagePlugin.warning('请选择图片文件')
-    return
+    return false
   }
-  avatarFile.value = file
-  avatarPreview.value = URL.createObjectURL(file)
+  if (target.size > 2 * 1024 * 1024) {
+    MessagePlugin.warning('头像文件不能超过 2MB')
+    return false
+  }
+  avatarPreview.value = URL.createObjectURL(target)
+  return true
 }
 
-async function uploadAvatar() {
-  if (!avatarFile.value) return MessagePlugin.warning('请选择头像文件')
+async function requestAvatarUpload(fileInput: unknown) {
+  const file = Array.isArray(fileInput) ? fileInput[0] : fileInput
+  const raw = (file as { raw?: File })?.raw
+  if (!raw) {
+    return { status: 'fail', error: '请选择头像文件', response: {} }
+  }
+  if (!raw.type.startsWith('image/')) {
+    MessagePlugin.warning('请选择图片文件')
+    return { status: 'fail', error: '请选择图片文件', response: {} }
+  }
   saving.value = true
   try {
-    await authApi.uploadAvatar(avatarFile.value)
+    await authApi.uploadAvatar(raw)
     await authStore.refreshSession()
-    avatarFile.value = null
     avatarPreview.value = user()?.avatar || ''
     MessagePlugin.success('头像已更新')
-  } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '上传失败') }
+    return { status: 'success', response: { url: avatarPreview.value } }
+  } catch (e: unknown) {
+    const message = (e as { message?: string })?.message || '上传失败'
+    MessagePlugin.error(message)
+    return { status: 'fail', error: message, response: {} }
+  }
   finally { saving.value = false }
 }
 
@@ -168,6 +186,17 @@ async function createApplication() {
     MessagePlugin.success('应用已创建，等待管理员审核启用')
   } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '创建失败') }
   finally { saving.value = false }
+}
+
+function openApplicationDialog() {
+  applicationForm.value = {
+    name: '',
+    description: '',
+    redirectUris: '',
+    scopes: 'openid\nprofile\nemail',
+    allowRegistration: true,
+  }
+  showApplicationForm.value = true
 }
 
 async function revokeSession(id: string) {
@@ -431,26 +460,22 @@ async function setPassword() {
             <t-input v-model="profileForm.username" size="large" placeholder="用户名" />
             <t-input :value="user()?.email || ''" size="large" placeholder="邮箱" disabled />
           </div>
-          <div class="panel-muted p-4">
-            <div class="flex flex-wrap items-center gap-4">
-              <img
-                v-if="avatarPreview"
-                :src="avatarPreview"
-                alt="当前头像"
-                class="h-16 w-16 rounded-2xl object-cover"
-              />
-              <div v-else class="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--surface-primary)] text-lg font-semibold text-[var(--text-primary)]">
-                {{ (user()?.username || user()?.email || 'U')[0] }}
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-[var(--text-primary)]">上传头像</p>
-                <p class="mt-1 text-xs text-[var(--text-muted)]">支持 JPG、PNG、WebP、GIF，最大 2MB。</p>
-                <div class="mt-3 flex flex-wrap gap-2">
-                  <input type="file" accept="image/*" class="text-sm text-[var(--text-muted)]" @change="onAvatarChange" />
-                  <t-button size="small" theme="primary" :loading="saving" :disabled="!avatarFile" @click="uploadAvatar">上传头像</t-button>
-                </div>
-              </div>
-            </div>
+          <div class="panel-muted avatar-panel p-4">
+            <t-upload
+              v-model="avatarUploadFiles"
+              class="avatar-upload"
+              theme="image"
+              accept="image/*"
+              tips="点击上传图片，支持 JPG、PNG、WebP、GIF，最大 2MB"
+              :max="1"
+              :auto-upload="true"
+              :show-image-file-name="false"
+              :show-upload-progress="true"
+              :use-mock-progress="true"
+              :mock-progress-duration="900"
+              :before-upload="beforeAvatarUpload"
+              :request-method="requestAvatarUpload"
+            />
           </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="panel-muted p-4">
@@ -540,32 +565,8 @@ async function setPassword() {
           <h2 class="mt-2 text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">我的应用</h2>
           <p class="mt-1 text-sm text-[var(--text-muted)]">用户可提交接入应用，管理员在后台启用或禁用运行状态。</p>
         </div>
-        <t-button theme="primary" @click="showApplicationForm = !showApplicationForm">{{ showApplicationForm ? '取消' : '添加应用' }}</t-button>
+        <t-button theme="primary" @click="openApplicationDialog">添加应用</t-button>
       </div>
-
-      <form v-if="showApplicationForm" class="mt-5 panel-muted p-4 space-y-4" @submit.prevent="createApplication">
-        <div class="grid gap-4 sm:grid-cols-2">
-          <t-input v-model="applicationForm.name" size="large" placeholder="应用名称" />
-          <t-input v-model="applicationForm.description" size="large" placeholder="描述（可选）" />
-        </div>
-        <t-textarea
-          v-model="applicationForm.redirectUris"
-          placeholder="回调地址（每行一个，例如 http://localhost:5173/oauth/callback）"
-          :autosize="{ minRows: 2, maxRows: 4 }"
-        />
-        <t-textarea
-          v-model="applicationForm.scopes"
-          placeholder="Scope（每行一个）"
-          :autosize="{ minRows: 2, maxRows: 4 }"
-        />
-        <div class="flex items-center justify-between gap-3">
-          <span class="text-sm text-[var(--text-primary)]">允许从该应用注册新用户</span>
-          <t-switch v-model="applicationForm.allowRegistration" />
-        </div>
-        <div class="action-row">
-          <t-button theme="primary" :loading="saving" @click="createApplication">提交应用</t-button>
-        </div>
-      </form>
 
       <div v-if="createdApplication" class="mt-5 rounded-2xl border border-[rgba(245,158,11,0.18)] bg-[rgba(245,158,11,0.08)] p-4">
         <p class="text-sm font-semibold text-[var(--warning)]">请立即保存 Client Secret</p>
@@ -589,6 +590,51 @@ async function setPassword() {
         </div>
       </div>
     </section>
+
+    <t-dialog
+      v-model:visible="showApplicationForm"
+      header="添加应用"
+      width="620px"
+      :confirm-btn="{ content: '提交应用', theme: 'primary', loading: saving }"
+      :cancel-btn="{ content: '取消', variant: 'outline' }"
+      @confirm="createApplication"
+    >
+      <div class="account-app-dialog">
+        <div class="account-app-grid">
+          <label class="app-form-field">
+            <span>应用名称</span>
+            <t-input v-model="applicationForm.name" size="large" placeholder="例如 Lumina Client" />
+          </label>
+          <label class="app-form-field">
+            <span>应用描述</span>
+            <t-input v-model="applicationForm.description" size="large" placeholder="描述（可选）" />
+          </label>
+        </div>
+        <label class="app-form-field">
+          <span>回调地址</span>
+          <t-textarea
+            v-model="applicationForm.redirectUris"
+            placeholder="每行一个，例如 http://localhost:5173/oauth/callback"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </label>
+        <label class="app-form-field">
+          <span>Scope 权限</span>
+          <t-textarea
+            v-model="applicationForm.scopes"
+            placeholder="每行一个，例如 openid / profile / email"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </label>
+        <div class="app-dialog-option">
+          <div>
+            <p>允许注册</p>
+            <span>允许从该应用授权流程注册新用户</span>
+          </div>
+          <t-switch v-model="applicationForm.allowRegistration" />
+        </div>
+      </div>
+    </t-dialog>
 
     <!-- Social Bindings Section — only for non-social users -->
     <section v-if="!isSocial()" class="panel-card p-6">
@@ -691,3 +737,90 @@ async function setPassword() {
     </t-dialog>
   </div>
 </template>
+
+<style scoped>
+.avatar-panel {
+  display: inline-flex;
+  align-items: flex-start;
+  width: auto;
+}
+
+.avatar-upload :deep(.t-upload__card) {
+  width: 112px;
+  height: 112px;
+  border-radius: 4px;
+  border-color: var(--border-primary);
+  background: var(--surface-muted);
+}
+
+.avatar-upload :deep(.t-upload__card:hover) {
+  border-color: var(--accent);
+  background: var(--accent-softer);
+}
+
+.avatar-upload :deep(.t-upload__card-name),
+.avatar-upload :deep(.t-upload__tips) {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.account-app-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.account-app-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.app-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-form-field > span {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.app-dialog-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 1.25rem;
+  background: var(--surface-muted);
+  padding: 16px;
+}
+
+.app-dialog-option p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.app-dialog-option span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .account-app-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

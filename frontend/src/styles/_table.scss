@@ -1,9 +1,11 @@
-/* ── Data Table System ── */
+/* ── Data Table System (Lumina Auth parity) ── */
 
 .table-shell {
   overflow: hidden;
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--border-primary);
+  background: var(--surface-primary);
+  box-shadow: var(--shadow-card);
 }
 
 .table-scroll {
@@ -15,21 +17,23 @@
   min-width: 760px;
   border-collapse: collapse;
 
-  thead { background: var(--surface-muted); }
+  thead {
+    background: var(--surface-muted);
+  }
 
   th {
     color: var(--text-faint);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.25em;
     text-transform: uppercase;
-    padding: 14px 16px;
+    padding: 14px 20px;
     text-align: left;
     border-bottom: 1px solid var(--border-primary);
   }
 
   td {
-    padding: 16px;
+    padding: 16px 20px;
     color: var(--text-secondary);
     font-size: 13px;
     line-height: 1.55;
@@ -41,9 +45,10 @@
 
   tbody tr {
     cursor: pointer;
-    transition: background-color 150ms ease, transform 150ms ease;
+    transition: background-color var(--duration-fast) var(--ease-lumina);
 
-    &:hover td { background: rgba(0, 82, 255, 0.028); }
-    &:hover { transform: translateX(4px); }
+    &:hover td {
+      background: var(--accent-softer);
+    }
   }
 }

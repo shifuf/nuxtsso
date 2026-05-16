@@ -1,8 +1,9 @@
-/* ── Console Layout ── */
+/* ── Console Layout (Lumina Auth parity, sidebar unchanged) ── */
 
 .console-main {
   min-width: 0;
   flex: 1;
+  background: var(--bg-page);
 }
 
 .console-topbar {
@@ -10,19 +11,31 @@
   top: 0;
   z-index: 30;
   display: flex;
-  min-height: 72px;
+  min-height: 64px;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 24px;
-  background: color-mix(in srgb, var(--bg-page) 84%, transparent);
+  padding: 12px 24px;
+  background: var(--surface-overlay);
   border-bottom: 1px solid var(--border-primary);
-  backdrop-filter: blur(18px);
-  animation: fadeIn 0.3s ease-out;
 }
 
 .console-body {
-  padding: 28px;
+  padding: 32px;
+  background: var(--bg-page);
+}
+
+.console-topbar-actions,
+.console-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.console-route-actions:empty {
+  display: none;
 }
 
 .mobile-nav-toggle {

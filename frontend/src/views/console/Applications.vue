@@ -200,6 +200,11 @@ async function viewSecret(app: ApplicationItem) {
     showSecretDialog.value = true
   } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '获取密钥失败') }
 }
+
+const iconColors = ['var(--accent)', 'var(--warning)', 'var(--success)', '#6366f1', 'var(--danger)', '#8b5cf6']
+const iconNames = ['app', 'cloud', 'shop', 'internet', 'server', 'computer']
+function appIconColor(index: number) { return iconColors[index % iconColors.length] }
+function appIconName(index: number) { return iconNames[index % iconNames.length] }
 </script>
 
 <template>
@@ -208,8 +213,8 @@ async function viewSecret(app: ApplicationItem) {
       title="应用接入"
     >
       <template #actions>
-        <t-button variant="outline" @click="loadApps">刷新</t-button>
-        <t-button theme="primary" @click="openCreate">新建应用</t-button>
+        <t-button variant="outline" class="lumina-outline-btn" @click="loadApps">刷新</t-button>
+        <t-button theme="primary" class="lumina-primary-btn" @click="openCreate">新建应用</t-button>
       </template>
     </PageHeader>
 
@@ -220,84 +225,88 @@ async function viewSecret(app: ApplicationItem) {
       <MetricCard label="共享 Scope" :value="String(allScopes.length)" caption="跨应用使用的 Scope 种类" trend="需统一治理" tone="neutral" />
     </div>
 
-    <section class="panel-card p-6">
+    <!-- Search & Filter bar -->
+    <section class="panel-card p-6" style="border-radius: 2rem;">
       <div class="grid gap-4 lg:grid-cols-[1.2fr,1fr,auto]">
         <t-input v-model="searchQuery" size="large" placeholder="搜索应用名称 / Client ID" @keyup.enter="loadApps" />
         <t-select v-model="statusFilter" size="large" :options="statusOptions" />
-        <t-button variant="outline" class="!h-11 !px-5" @click="loadApps">筛选</t-button>
-      </div>
-
-      <div class="mt-5 grid gap-6 xl:grid-cols-[1.55fr,0.85fr]">
-        <div class="table-shell">
-          <div class="table-scroll">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>应用</th>
-                  <th>Client ID</th>
-                  <th>回调地址</th>
-                  <th>状态</th>
-                  <th>注册</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in filteredApps" :key="item.id">
-                  <td>
-                    <p class="font-semibold text-[var(--text-primary)]">{{ item.name }}</p>
-                    <p v-if="item.description" class="mt-1 text-sm text-[var(--text-muted)]">{{ item.description }}</p>
-                    <p v-if="item.owner" class="mt-1 text-xs text-[var(--text-muted)]">提交人：{{ item.owner.username || item.owner.email }}</p>
-                    <p v-if="item.status === 'disabled'" class="mt-1 text-xs font-semibold text-[var(--danger)]">已禁用 — 授权流程已暂停</p>
-                  </td>
-                  <td class="font-mono text-xs">{{ item.clientId }}</td>
-                  <td class="font-mono text-xs">{{ item.redirectUris[0] || '—' }}</td>
-                  <td>
-                    <StatusTag :tone="item.status === 'active' ? 'success' : 'danger'" :label="item.status === 'active' ? '启用' : '禁用'" />
-                  </td>
-                  <td>
-                    <StatusTag :tone="item.allowRegistration ? 'info' : 'neutral'" :label="item.allowRegistration ? '允许注册' : '仅登录'" />
-                  </td>
-                  <td>
-                    <div class="flex gap-1.5 flex-wrap">
-                      <t-button variant="outline" size="small" @click="openEdit(item)">编辑</t-button>
-                      <t-button variant="outline" size="small" :theme="item.status === 'active' ? 'warning' : 'success'" @click="toggleStatus(item)">{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
-                      <t-button variant="outline" size="small" @click="viewSecret(item)">查看密钥</t-button>
-                      <t-button variant="outline" size="small" @click="resetSecret(item)">重置密钥</t-button>
-                      <t-button variant="outline" size="small" theme="danger" @click="deleteApp(item)">删除</t-button>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="filteredApps.length === 0 && !loading">
-                  <td colspan="6" class="text-center py-8 text-[var(--text-muted)]">暂无应用数据</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="space-y-5">
-          <div class="panel-muted p-5">
-            <p class="eyebrow">快速操作</p>
-            <div class="mt-4 space-y-3">
-              <t-button block theme="primary" @click="openCreate">新建应用</t-button>
-            </div>
-            <div class="mt-4 flex flex-wrap gap-2">
-              <span v-for="scope in allScopes.slice(0, 8)" :key="scope" class="token-chip font-mono">{{ scope }}</span>
-            </div>
-          </div>
-
-          <div class="panel-muted p-5">
-            <p class="eyebrow">凭据安全</p>
-            <div class="mt-4 space-y-3">
-              <div class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4">
-                <p class="text-sm font-semibold text-[var(--text-primary)]">Client Secret 一次性展示</p>
-                <p class="mt-1 text-sm leading-6 text-[var(--text-muted)]">创建或重置密钥后立即复制保存，关闭弹窗后无法再次查看。</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <t-button variant="outline" class="!h-11 !px-5 lumina-outline-btn" @click="loadApps">筛选</t-button>
       </div>
     </section>
+
+    <!-- App cards grid -->
+    <div class="app-cards-grid">
+      <div
+        v-for="(item, index) in filteredApps"
+        :key="item.id"
+        class="app-card"
+      >
+        <div class="app-card-header">
+          <div class="app-icon" :style="{ background: appIconColor(index) }">
+            <t-icon :name="appIconName(index)" size="22px" />
+          </div>
+          <div class="app-card-meta">
+            <div class="flex items-center gap-2">
+              <h3 class="app-card-name">{{ item.name }}</h3>
+              <span v-if="item.status === 'active'" class="live-dot" title="在线"></span>
+            </div>
+            <p v-if="item.description" class="app-card-desc">{{ item.description }}</p>
+          </div>
+          <StatusTag :tone="item.status === 'active' ? 'success' : 'danger'" :label="item.status === 'active' ? '启用' : '禁用'" />
+        </div>
+
+        <!-- Client ID area -->
+        <div class="app-client-id" @click="copyToClipboard(item.clientId, 'Client ID')">
+          <span class="app-client-label">Client ID</span>
+          <span class="app-client-value">{{ item.clientId }}</span>
+          <t-icon name="copy" size="14px" class="app-client-copy" />
+        </div>
+
+        <!-- Meta info -->
+        <div class="app-card-info">
+          <div class="app-info-item">
+            <span class="app-info-label">回调地址</span>
+            <span class="app-info-value font-mono">{{ item.redirectUris[0] || '—' }}</span>
+          </div>
+          <div class="app-info-item">
+            <span class="app-info-label">注册策略</span>
+            <StatusTag :tone="item.allowRegistration ? 'info' : 'neutral'" :label="item.allowRegistration ? '允许注册' : '仅登录'" />
+          </div>
+          <div v-if="item.owner" class="app-info-item">
+            <span class="app-info-label">提交人</span>
+            <span class="app-info-value">{{ item.owner.username || item.owner.email }}</span>
+          </div>
+        </div>
+
+        <!-- Scope chips -->
+        <div v-if="item.scopes.length > 0" class="app-scopes">
+          <span v-for="scope in item.scopes.slice(0, 4)" :key="scope" class="scope-chip">{{ scope }}</span>
+          <span v-if="item.scopes.length > 4" class="scope-chip scope-chip-more">+{{ item.scopes.length - 4 }}</span>
+        </div>
+
+        <!-- Actions -->
+        <div class="app-card-actions">
+          <t-button variant="outline" size="small" class="action-tag action-edit" @click="openEdit(item)">编辑</t-button>
+          <t-button
+            variant="outline"
+            size="small"
+            :class="['action-tag', item.status === 'active' ? 'action-disable' : 'action-enable']"
+            @click="toggleStatus(item)"
+          >{{ item.status === 'active' ? '禁用' : '启用' }}</t-button>
+          <t-button variant="outline" size="small" class="action-tag action-secret" @click="viewSecret(item)">密钥</t-button>
+          <t-button variant="outline" size="small" class="action-tag action-reset" @click="resetSecret(item)">重置</t-button>
+          <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteApp(item)">删除</t-button>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div v-if="filteredApps.length === 0 && !loading" class="app-empty-state">
+        <t-icon name="app" size="40px" />
+        <p class="mt-3 text-sm font-semibold text-[var(--text-primary)]">暂无应用数据</p>
+        <p class="mt-1 text-xs text-[var(--text-muted)]">点击「新建应用」接入你的第一个 OAuth 业务系统</p>
+        <t-button theme="primary" class="lumina-primary-btn mt-4" @click="openCreate">新建应用</t-button>
+      </div>
+    </div>
 
     <!-- Create/Edit Dialog -->
     <t-dialog
@@ -308,35 +317,60 @@ async function viewSecret(app: ApplicationItem) {
       :cancel-btn="{ content: '取消', variant: 'outline' }"
       @confirm="saveApp"
     >
-      <div class="space-y-4 pt-2">
-        <div v-if="editingApp?.status === 'disabled'" class="rounded-2xl border border-[rgba(220,38,38,0.15)] bg-[rgba(239,68,68,0.08)] p-4">
+      <div class="app-dialog-form">
+        <div v-if="editingApp?.status === 'disabled'" class="app-dialog-alert app-dialog-alert--danger">
           <p class="text-sm font-semibold text-[var(--danger)]">该应用已禁用</p>
           <p class="mt-1 text-sm text-[var(--text-muted)]">禁用期间所有 OAuth 授权流程将被拒绝，用户无法通过此应用登录。</p>
         </div>
-        <t-input v-model="formData.name" size="large" placeholder="应用名称" />
-        <t-input v-model="formData.description" size="large" placeholder="描述（可选）" />
-        <t-textarea
-          v-model="formData.redirectUris"
-          placeholder="回调地址（每行一个）"
-          :autosize="{ minRows: 2, maxRows: 4 }"
-        />
-        <t-textarea
-          v-model="formData.scopes"
-          placeholder="Scope（每行一个，默认 openid profile email）"
-          :autosize="{ minRows: 2, maxRows: 4 }"
-        />
-        <div class="flex items-center justify-between gap-3">
-          <span class="text-sm text-[var(--text-primary)]">允许注册</span>
+
+        <div class="app-dialog-grid">
+          <label class="app-form-field">
+            <span>应用名称</span>
+            <t-input v-model="formData.name" size="large" placeholder="例如 Lumina Console" />
+          </label>
+          <label class="app-form-field">
+            <span>应用描述</span>
+            <t-input v-model="formData.description" size="large" placeholder="描述（可选）" />
+          </label>
+        </div>
+
+        <label class="app-form-field">
+          <span>回调地址</span>
+          <t-textarea
+            v-model="formData.redirectUris"
+            placeholder="每行一个，例如 https://example.com/oauth/callback"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </label>
+
+        <label class="app-form-field">
+          <span>Scope 权限</span>
+          <t-textarea
+            v-model="formData.scopes"
+            placeholder="每行一个，默认 openid / profile / email"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </label>
+
+        <div class="app-dialog-option">
+          <div>
+            <p>允许注册</p>
+            <span>允许用户从该应用 OAuth 授权链路创建账号</span>
+          </div>
           <t-switch v-model="formData.allowRegistration" />
         </div>
-        <t-select
-          v-model="formData.enabledSocialProviders"
-          :options="providerOptions"
-          placeholder="选择已启用的第三方登录"
-          multiple
-          size="large"
-          :min-collapsed-num="3"
-        />
+
+        <label class="app-form-field">
+          <span>第三方登录</span>
+          <t-select
+            v-model="formData.enabledSocialProviders"
+            :options="providerOptions"
+            placeholder="选择已启用的第三方登录"
+            multiple
+            size="large"
+            :min-collapsed-num="3"
+          />
+        </label>
       </div>
     </t-dialog>
 
@@ -348,7 +382,7 @@ async function viewSecret(app: ApplicationItem) {
       :footer="false"
     >
       <div class="space-y-4">
-        <div class="rounded-2xl border border-[rgba(220,38,38,0.15)] bg-[rgba(239,68,68,0.08)] p-4">
+        <div class="rounded-2xl border border-[rgba(244,63,94,0.15)] bg-[rgba(244,63,94,0.08)] p-4">
           <p class="text-sm font-semibold text-[var(--danger)]">请立即复制保存</p>
           <p class="mt-1 text-sm text-[var(--text-muted)]">关闭此弹窗后 Client Secret 将无法再次查看。</p>
         </div>
@@ -363,10 +397,306 @@ async function viewSecret(app: ApplicationItem) {
           </div>
         </div>
         <div class="action-row">
-          <t-button variant="outline" @click="copyToClipboard(secretResult!.clientId, 'Client ID')">复制 ID</t-button>
-          <t-button theme="primary" @click="copyToClipboard(secretResult!.clientSecret, 'Client Secret')">复制 Secret</t-button>
+          <t-button variant="outline" class="lumina-outline-btn" @click="copyToClipboard(secretResult!.clientId, 'Client ID')">复制 ID</t-button>
+          <t-button theme="primary" class="lumina-primary-btn" @click="copyToClipboard(secretResult!.clientSecret, 'Client Secret')">复制 Secret</t-button>
         </div>
       </div>
     </t-dialog>
   </div>
 </template>
+
+<style scoped>
+/* App cards grid */
+.app-cards-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 1023px) {
+  .app-cards-grid { grid-template-columns: 1fr; }
+}
+
+/* Individual app card – Lumina style */
+.app-card {
+  background: var(--surface-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 1.5rem;
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.app-card:hover {
+  background: linear-gradient(180deg, var(--surface-primary), var(--accent-softer));
+  border-color: rgba(50, 88, 255, 0.28);
+}
+
+.app-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.app-icon {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.app-card-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-card-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  flex-shrink: 0;
+}
+
+.app-card-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Client ID area */
+.app-client-id {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-primary);
+  cursor: pointer;
+}
+
+.app-client-id:hover {
+  background: var(--accent-soft);
+  border-color: rgba(50, 88, 255, 0.2);
+}
+
+.app-client-label {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.app-client-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.app-client-copy {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.app-client-id:hover .app-client-copy {
+  color: var(--accent);
+}
+
+/* Meta info */
+.app-card-info {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-info-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.app-info-label {
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-faint);
+}
+
+.app-info-value {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* Scope chips */
+.app-scopes {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.scope-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.scope-chip-more {
+  background: var(--accent-soft);
+  border-color: rgba(50, 88, 255, 0.15);
+  color: var(--accent);
+}
+
+/* Actions */
+.app-card-actions {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.app-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.app-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.app-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.app-form-field > span {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.app-dialog-option,
+.app-dialog-alert {
+  border: 1px solid var(--border-primary);
+  border-radius: 1.25rem;
+  background: var(--surface-muted);
+  padding: 16px;
+}
+
+.app-dialog-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-dialog-option p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.app-dialog-option span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.app-dialog-alert--danger {
+  border-color: rgba(244, 63, 94, 0.22);
+  background: var(--danger-soft);
+}
+
+@media (max-width: 640px) {
+  .app-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Empty state */
+.app-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  border: 2px dashed var(--border-strong);
+  border-radius: 2rem;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.app-empty-state:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Lumina button styles */
+:deep(.lumina-primary-btn) {
+  border-radius: 1rem !important;
+  font-weight: 900 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.15em !important;
+  font-size: 10px !important;
+  box-shadow: 0 18px 40px -26px rgba(50, 88, 255, 0.45) !important;
+}
+:deep(.lumina-primary-btn:active) { opacity: 0.85 !important; }
+
+:deep(.lumina-outline-btn) {
+  border-radius: 1rem !important;
+  font-weight: 700 !important;
+}
+:deep(.lumina-outline-btn:active) { opacity: 0.85 !important; }
+</style>

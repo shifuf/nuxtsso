@@ -336,8 +336,8 @@ function formatBytes(bytes: number) {
                   </div>
                   <div class="flex items-center gap-2">
                     <StatusTag :tone="provider.enabled ? 'success' : 'warning'" :label="provider.enabled ? '已启用' : '未启用'" />
-                    <t-button variant="outline" size="small" @click="openProviderEdit(provider)">编辑</t-button>
-                    <t-button variant="outline" size="small" theme="danger" @click="deleteProvider(provider.name)">删除</t-button>
+                    <t-button variant="outline" size="small" class="action-tag action-edit" @click="openProviderEdit(provider)">编辑</t-button>
+                    <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteProvider(provider.name)">删除</t-button>
                   </div>
                 </div>
               </div>
@@ -458,8 +458,8 @@ function formatBytes(bytes: number) {
                       <td>{{ item.compressed ? 'gzip' : '原始' }}</td>
                       <td>
                         <div class="flex gap-2">
-                          <t-button variant="outline" size="small" theme="warning" @click="restoreBackup(item.filename)">恢复</t-button>
-                          <t-button variant="outline" size="small" theme="danger" @click="deleteBackup(item.filename)">删除</t-button>
+                          <t-button variant="outline" size="small" class="action-tag action-reset" @click="restoreBackup(item.filename)">恢复</t-button>
+                          <t-button variant="outline" size="small" class="action-tag action-delete" @click="deleteBackup(item.filename)">删除</t-button>
                         </div>
                       </td>
                     </tr>

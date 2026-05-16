@@ -25,7 +25,7 @@ const props = withDefaults(
       <p
         v-if="props.subtitle"
         class="brand-mark__copy truncate"
-        :style="{ color: props.contrast ? 'rgba(226,232,240,0.72)' : 'var(--text-muted)' }"
+        :style="{ color: props.contrast ? 'rgba(226,232,240,0.60)' : 'var(--text-muted)' }"
       >
         {{ props.subtitle }}
       </p>

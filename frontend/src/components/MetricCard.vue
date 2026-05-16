@@ -22,7 +22,7 @@ withDefaults(
     <div class="flex items-start justify-between gap-3">
       <div>
         <p class="eyebrow">{{ label }}</p>
-        <p class="metric-value mt-4">{{ value }}</p>
+        <p class="metric-value mt-3">{{ value }}</p>
       </div>
       <StatusTag v-if="trend" :tone="tone" :label="trend" />
     </div>
