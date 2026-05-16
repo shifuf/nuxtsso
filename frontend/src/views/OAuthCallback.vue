@@ -21,13 +21,13 @@ onMounted(() => {
 
   if (errParam) {
     error.value = decodeURIComponent(errParam)
-    statusText.value = '授权失败 — 后端返回了错误信息'
+    statusText.value = '授权未完成，服务端返回了错误信息'
     processingComplete.value = true
   } else if (code) {
     statusText.value = '授权码已生成，业务系统将通过后端交换 Token...'
     processingComplete.value = true
   } else {
-    statusText.value = '等待中 — 如果长时间未响应，请检查 redirect_uri 配置'
+    statusText.value = '正在等待授权回调，请确认 redirect_uri 配置正确'
   }
 })
 </script>
@@ -82,7 +82,7 @@ onMounted(() => {
     </div>
 
     <div class="action-row mt-6 justify-center">
-      <t-button theme="primary" class="lumina-primary-btn" @click="router.push('/console/overview')">进入控制台</t-button>
+      <t-button theme="primary" class="lumina-primary-btn" @click="router.push('/user/account')">进入用户中心</t-button>
       <t-button variant="outline" class="lumina-outline-btn" @click="router.push('/login')">返回登录页</t-button>
     </div>
 

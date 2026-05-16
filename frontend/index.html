@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-app-theme="light">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -9,10 +9,38 @@
       content="统一身份认证、OAuth2/OIDC 授权、应用接入和审计运营一体化后台。"
     />
     <meta name="theme-color" content="#0a0a14" />
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('nexus-sso-theme-mode');
+          var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+          var dark = mode === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+            : mode === 'dark';
+          document.documentElement.setAttribute('data-app-theme', dark ? 'dark' : 'light');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#0f172a' : '#f8fafc');
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #app {
+        min-height: 100%;
+        margin: 0;
+        background: #f8fafc;
+      }
+
+      html[data-app-theme='dark'],
+      html[data-app-theme='dark'] body,
+      html[data-app-theme='dark'] #app {
+        background: #0f172a;
+      }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <title>Nexus SSO 控制台</title>
+    <title>一证通行</title>
   </head>
   <body>
     <div id="app"></div>

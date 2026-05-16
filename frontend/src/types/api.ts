@@ -102,6 +102,12 @@ export interface ServiceRootInfo {
   docs: string[];
 }
 
+export interface SiteConfig {
+  siteName: string;
+  footerCopyright: string;
+  icpNumber: string;
+}
+
 export interface SystemHealth {
   status: string;
   timestamp: string;

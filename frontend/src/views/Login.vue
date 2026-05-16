@@ -57,12 +57,12 @@ const enabledProviders = computed(() =>
 )
 
 const titleMap: Record<AuthMode, string> = {
-  password: '统一登录', email: '邮箱验证码登录', register: '从接入应用注册',
+  password: '欢迎回来', email: '邮箱验证码登录', register: '从接入应用注册',
   reset: '找回密码', authorize: '授权确认', restricted: '访问受限',
 }
 
 const descriptionMap: Record<AuthMode, string> = {
-  password: '支持用户名或邮箱登录，完成后根据角色进入控制台或继续 OAuth 授权。',
+  password: '请登录您的账户以继续',
   email: '适用于已开启邮箱验证的场景，发送验证码后完成快速登录。',
   register: '仅在应用允许注册且从授权链路进入时展示。',
   reset: '通过邮箱验证码确认身份后，重置新的登录密码。',
@@ -310,7 +310,7 @@ async function checkSocialLoginStatus() {
 
 function afterLoginSuccess(role: string) {
   if (hasOAuthContext.value) { mode.value = 'authorize' }
-  else { router.push(role === 'admin' ? '/console/overview' : '/console/account') }
+  else { router.push(role === 'admin' ? '/user/overview' : '/user/account') }
 }
 
 function handlePrimaryAction() {
@@ -339,10 +339,23 @@ function handleSecondaryAction() {
 
 <template>
   <div :class="['lumina-login', isAuthorizeOnly && 'lumina-login--authorize']">
-    <section class="lumina-card" aria-label="Lumina login panel">
+    <div class="login-split-card">
+      <aside class="login-visual" aria-hidden="true">
+        <span class="login-shape login-shape--one"></span>
+        <span class="login-shape login-shape--two"></span>
+        <span class="login-shape login-shape--three"></span>
+        <div class="login-visual__center">
+          <div class="login-visual__icon"><t-icon name="secured" size="42px" /></div>
+          <h2>一证通行</h2>
+          <p>安全、便捷的统一身份认证平台</p>
+          <div class="login-dots"><span></span><span></span><span></span></div>
+        </div>
+      </aside>
+
+    <section class="lumina-card" aria-label="一证通行登录面板">
       <div class="lumina-brand">
-        <div class="lumina-brand__mark">L</div>
-        <span class="lumina-brand__text">LUMINA</span>
+        <div class="lumina-brand__mark">证</div>
+        <span class="lumina-brand__text">一证通行</span>
       </div>
 
       <header class="lumina-heading">
@@ -351,20 +364,20 @@ function handleSecondaryAction() {
       </header>
 
       <div v-if="showAuthorizeTab && mode !== 'authorize'" class="lumina-context">
-        <span>AUTH CONTEXT</span>
+        <span>授权上下文</span>
         <button type="button" @click="mode = 'authorize'">授权确认</button>
       </div>
 
       <form class="lumina-form" @submit.prevent="handlePrimaryAction">
         <template v-if="mode === 'password'">
           <div class="lumina-field">
-            <label>EMAIL ADDRESS</label>
+            <label>邮箱地址</label>
             <div class="lumina-input">
               <span>@</span>
               <input
                 v-model="credentialsForm.account"
                 autocomplete="username"
-                placeholder="name@company.com / username"
+                placeholder="请输入邮箱地址"
                 type="text"
               />
             </div>
@@ -372,8 +385,8 @@ function handleSecondaryAction() {
 
           <div class="lumina-field">
             <div class="lumina-label-row">
-              <label>PASSWORD</label>
-              <button v-if="showResetTab" type="button" @click="mode = 'reset'">Forgot?</button>
+              <label>登录密码</label>
+              <button v-if="showResetTab" type="button" @click="mode = 'reset'">忘记密码？</button>
             </div>
             <div class="lumina-input">
               <span>*</span>
@@ -389,23 +402,23 @@ function handleSecondaryAction() {
 
         <template v-else-if="mode === 'email'">
           <div class="lumina-field">
-            <label>EMAIL ADDRESS</label>
+            <label>邮箱地址</label>
             <div class="lumina-input">
               <span>@</span>
-              <input v-model="emailForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+              <input v-model="emailForm.email" autocomplete="email" placeholder="请输入邮箱地址" type="email" />
             </div>
           </div>
 
           <div class="lumina-field">
             <div class="lumina-label-row">
-              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <label>邮箱验证码</label>
               <button type="button" :disabled="sendingCode" @click="handleSendCode('login')">
-                {{ sendingCode ? 'Sending...' : 'Resend?' }}
+                {{ sendingCode ? '发送中...' : '发送验证码' }}
               </button>
             </div>
             <div class="lumina-input">
               <span>#</span>
-              <input v-model="emailForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
+              <input v-model="emailForm.code" class="is-code" inputmode="numeric" placeholder="请输入 6 位验证码" type="text" />
             </div>
           </div>
         </template>
@@ -413,43 +426,43 @@ function handleSecondaryAction() {
         <template v-else-if="mode === 'register'">
           <div v-if="oauthCtx" class="lumina-oauth-note">
             <div>
-              <StatusTag tone="info" label="OAuth Register" />
-              <StatusTag tone="success" label="Verified" />
+              <StatusTag tone="info" label="授权注册" />
+              <StatusTag tone="success" label="已校验" />
             </div>
-            <p>当前由 {{ oauthCtx.clientName || '未知应用' }} 发起授权注册。</p>
+            <p>当前由 {{ oauthCtx.clientName || '未识别应用' }} 发起授权注册。</p>
           </div>
 
           <div v-if="requireEmailVerification" class="lumina-field">
-            <label>EMAIL ADDRESS</label>
+            <label>邮箱地址</label>
             <div class="lumina-input">
               <span>@</span>
-              <input v-model="registerForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+              <input v-model="registerForm.email" autocomplete="email" placeholder="请输入邮箱地址" type="email" />
             </div>
           </div>
 
           <div v-if="requireEmailVerification" class="lumina-field">
             <div class="lumina-label-row">
-              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <label>邮箱验证码</label>
               <button type="button" :disabled="sendingCode" @click="handleSendCode('register')">
-                {{ sendingCode ? 'Sending...' : 'Resend?' }}
+                {{ sendingCode ? '发送中...' : '发送验证码' }}
               </button>
             </div>
             <div class="lumina-input">
               <span>#</span>
-              <input v-model="registerForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
+              <input v-model="registerForm.code" class="is-code" inputmode="numeric" placeholder="请输入 6 位验证码" type="text" />
             </div>
           </div>
 
           <div class="lumina-field">
-            <label>FULL NAME</label>
+            <label>用户名</label>
             <div class="lumina-input">
               <span>ID</span>
-              <input v-model="registerForm.username" autocomplete="username" placeholder="Enter your name" type="text" />
+              <input v-model="registerForm.username" autocomplete="username" placeholder="请输入用户名" type="text" />
             </div>
           </div>
 
           <div class="lumina-field">
-            <label>PASSWORD</label>
+            <label>登录密码</label>
             <div class="lumina-input">
               <span>*</span>
               <input v-model="registerForm.password" autocomplete="new-password" placeholder="••••••••" type="password" />
@@ -457,7 +470,7 @@ function handleSecondaryAction() {
           </div>
 
           <div class="lumina-field">
-            <label>CONFIRM PASSWORD</label>
+            <label>确认密码</label>
             <div class="lumina-input">
               <span>*</span>
               <input v-model="registerForm.confirmPassword" autocomplete="new-password" placeholder="••••••••" type="password" />
@@ -467,28 +480,28 @@ function handleSecondaryAction() {
 
         <template v-else-if="mode === 'reset'">
           <div class="lumina-field">
-            <label>EMAIL ADDRESS</label>
+            <label>邮箱地址</label>
             <div class="lumina-input">
               <span>@</span>
-              <input v-model="resetForm.email" autocomplete="email" placeholder="name@company.com" type="email" />
+              <input v-model="resetForm.email" autocomplete="email" placeholder="请输入邮箱地址" type="email" />
             </div>
           </div>
 
           <div class="lumina-field">
             <div class="lumina-label-row">
-              <label>VERIFICATION FRAGMENT (OTP)</label>
+              <label>邮箱验证码</label>
               <button type="button" :disabled="sendingCode" @click="handleSendCode('reset-password')">
-                {{ sendingCode ? 'Sending...' : 'Resend?' }}
+                {{ sendingCode ? '发送中...' : '发送验证码' }}
               </button>
             </div>
             <div class="lumina-input">
               <span>#</span>
-              <input v-model="resetForm.code" class="is-code" inputmode="numeric" placeholder="6-digit code" type="text" />
+              <input v-model="resetForm.code" class="is-code" inputmode="numeric" placeholder="请输入 6 位验证码" type="text" />
             </div>
           </div>
 
           <div class="lumina-field">
-            <label>NEW SECURE PASSWORD</label>
+            <label>新登录密码</label>
             <div class="lumina-input">
               <span>*</span>
               <input v-model="resetForm.password" autocomplete="new-password" placeholder="••••••••" type="password" />
@@ -500,7 +513,7 @@ function handleSecondaryAction() {
           <div class="lumina-authorize">
             <div class="lumina-authorize__head">
               <div>
-                <span>APPLICATION</span>
+                <span>接入应用</span>
                 <h2>{{ oauthCtx.clientName }}</h2>
               </div>
               <StatusTag tone="info" :label="oauthCtx.clientId" />
@@ -541,21 +554,21 @@ function handleSecondaryAction() {
             type="button"
             @click="mode = mode === 'email' ? 'password' : 'email'"
           >
-            {{ mode === 'email' ? 'Password Login' : 'Magic Code (OTP)' }}
+            {{ mode === 'email' ? '密码登录' : '邮箱验证码登录' }}
           </button>
           <button
             v-if="showRegisterTab"
             type="button"
             @click="mode = mode === 'register' ? 'password' : 'register'"
           >
-            {{ mode === 'register' ? 'Existing Account' : 'New Identity' }}
+            {{ mode === 'register' ? '已有账号登录' : '注册新账号' }}
           </button>
         </div>
 
         <template v-if="enabledProviders.length > 0 && mode !== 'authorize' && mode !== 'restricted'">
           <div class="lumina-divider">
             <span></span>
-            <p>Or continue with</p>
+            <p>或使用第三方登录</p>
             <span></span>
           </div>
 
@@ -575,15 +588,16 @@ function handleSecondaryAction() {
         </template>
 
         <p v-if="showRegisterTab && mode !== 'authorize' && mode !== 'restricted'" class="lumina-foot-action">
-          {{ mode === 'register' ? 'Already have an account?' : 'New to Lumina?' }}
+          {{ mode === 'register' ? '已有账号？' : '还没有账号？' }}
           <button type="button" @click="mode = mode === 'register' ? 'password' : 'register'">
-            {{ mode === 'register' ? 'Sign In' : 'Create Account' }}
+            {{ mode === 'register' ? '去登录' : '立即注册' }}
           </button>
         </p>
       </form>
     </section>
+    </div>
 
-    <div class="lumina-copyright">© 2026 LUMINA IDENTITY SYSTEMS PRO</div>
+    <div class="lumina-copyright">© 2026 一证通行</div>
 
     <t-dialog
       v-model:visible="socialQrVisible"
@@ -1048,6 +1062,161 @@ function handleSecondaryAction() {
   letter-spacing: 0.20em;
   text-align: center;
   text-transform: uppercase;
+}
+
+.lumina-login {
+  width: min(100%, 1024px);
+}
+
+.lumina-login--authorize {
+  width: min(100%, 1024px);
+}
+
+.login-split-card {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.05fr) minmax(360px, 0.95fr);
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--surface-secondary);
+  box-shadow: 0 28px 76px -42px rgba(15, 23, 42, 0.48);
+}
+
+.login-visual {
+  position: relative;
+  display: grid;
+  min-height: 612px;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 16% 12%, rgba(148, 163, 184, 0.14), transparent 9%),
+    linear-gradient(145deg, #111827 0%, #26364a 100%);
+  color: #fff;
+}
+
+.login-visual__center {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.login-visual__icon {
+  display: grid;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 24px;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.login-visual h2 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 950;
+  letter-spacing: -0.05em;
+}
+
+.login-visual p {
+  margin: 16px 0 0;
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.login-dots {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 42px;
+}
+
+.login-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.login-shape {
+  position: absolute;
+  display: block;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.login-shape--one {
+  top: 34px;
+  left: 42px;
+  width: 80px;
+  height: 80px;
+  border-radius: 999px;
+}
+
+.login-shape--two {
+  right: 32px;
+  bottom: 72px;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+}
+
+.login-shape--three {
+  left: 64px;
+  bottom: 202px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  transform: rotate(45deg);
+}
+
+.login-split-card .lumina-card {
+  border: 0;
+  border-radius: 0;
+  padding: 42px 40px;
+  box-shadow: none;
+}
+
+.login-split-card .lumina-brand {
+  display: none;
+}
+
+.login-split-card .lumina-heading {
+  margin-bottom: 32px;
+  text-align: left;
+}
+
+.login-split-card .lumina-heading h1 {
+  font-size: 28px;
+  letter-spacing: -0.04em;
+}
+
+.login-split-card .lumina-field label,
+.login-split-card .lumina-label-row label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.login-split-card .lumina-input {
+  min-height: 46px;
+  border-radius: 12px;
+  background: var(--surface-secondary);
+}
+
+.login-split-card .lumina-submit {
+  min-height: 44px;
+  border-radius: 11px;
+  background: #17233c;
+  box-shadow: none;
+  font-size: 14px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.login-split-card .lumina-submit:hover {
+  background: #26364a;
+  box-shadow: none;
 }
 
 .social-grid {

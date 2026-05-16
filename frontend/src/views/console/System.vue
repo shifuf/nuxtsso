@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { adminApi } from '../../api/admin'
-import type { SocialProviderConfig, EmailConfig, BackupInfo } from '../../types/api'
+import type { SocialProviderConfig, EmailConfig, BackupInfo, SiteConfig } from '../../types/api'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
 import { formatDateTime } from '../../utils/console'
@@ -13,6 +13,11 @@ const saving = ref(false)
 
 // ── Auth Config ──
 const authConfig = reactive({ requireEmailVerification: false, publicApiEnabled: false })
+const siteConfig = reactive<SiteConfig>({
+  siteName: '一证通行',
+  footerCopyright: '© 2026 一证通行. All rights reserved.',
+  icpNumber: '',
+})
 
 // ── Social Providers ──
 const socialProviders = ref<SocialProviderConfig[]>([])
@@ -58,8 +63,9 @@ onMounted(async () => {
 async function loadAll() {
   loading.value = true
   try {
-    const [ac, sp, ec, bc, bl] = await Promise.all([
+    const [ac, site, sp, ec, bc, bl] = await Promise.all([
       adminApi.getAuthConfig(),
+      adminApi.getSiteConfig(),
       adminApi.listSocialProviders(),
       adminApi.getEmailConfig(),
       adminApi.getBackupConfig(),
@@ -67,6 +73,7 @@ async function loadAll() {
     ])
     authConfig.requireEmailVerification = ac.requireEmailVerification
     authConfig.publicApiEnabled = ac.publicApiEnabled
+    if (site) Object.assign(siteConfig, site)
     socialProviders.value = sp || []
     if (ec) Object.assign(emailConfig, ec)
     if (bc) {
@@ -78,6 +85,15 @@ async function loadAll() {
     backups.value = bl || []
   } catch { /* some APIs may not be configured yet */ }
   finally { loading.value = false }
+}
+
+async function saveSiteConfig() {
+  saving.value = true
+  try {
+    await adminApi.updateSiteConfig({ ...siteConfig })
+    MessagePlugin.success('站点信息已更新')
+  } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '保存失败') }
+  finally { saving.value = false }
 }
 
 // ── Auth ──
@@ -311,6 +327,30 @@ function formatBytes(bytes: number) {
                     <StatusTag tone="success" label="默认启用" />
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </t-tab-panel>
+
+        <t-tab-panel value="site" label="站点信息">
+          <div class="grid gap-6 lg:grid-cols-[1fr,0.8fr]">
+            <div class="panel-muted p-5">
+              <p class="eyebrow">门户页脚配置</p>
+              <div class="mt-5 space-y-4">
+                <t-input v-model="siteConfig.siteName" size="large" label="站点名称" placeholder="一证通行" />
+                <t-input v-model="siteConfig.footerCopyright" size="large" label="版权信息" placeholder="© 2026 一证通行. All rights reserved." />
+                <t-input v-model="siteConfig.icpNumber" size="large" label="备案号" placeholder="例如：京ICP备00000000号-1" />
+              </div>
+              <div class="action-row mt-5">
+                <t-button theme="primary" :loading="saving" @click="saveSiteConfig">保存站点信息</t-button>
+              </div>
+            </div>
+
+            <div class="panel-muted p-5">
+              <p class="eyebrow">页脚预览</p>
+              <div class="mt-5 rounded-2xl border border-[var(--border-primary)] bg-[#0f172a] p-5 text-center">
+                <p class="text-sm font-semibold text-slate-200">{{ siteConfig.footerCopyright }}</p>
+                <p v-if="siteConfig.icpNumber" class="mt-2 text-xs text-slate-400">{{ siteConfig.icpNumber }}</p>
               </div>
             </div>
           </div>

@@ -15,7 +15,7 @@ const alreadyInitialized = ref(false)
 const steps = ['服务配置', '创建管理员']
 
 const formData = reactive({
-  serviceName: 'Nexus SSO',
+  serviceName: '一证通行',
   issuer: location.origin,
   username: '',
   email: '',
@@ -71,7 +71,7 @@ async function proceed() {
     })
     authStore.applySession(res)
     MessagePlugin.success('初始化完成')
-    router.push('/console/overview')
+    router.push('/user/overview')
   } catch (e: unknown) {
     MessagePlugin.error((e as { message?: string })?.message || '初始化失败')
   } finally {
@@ -84,7 +84,7 @@ async function proceed() {
   <div class="setup-shell">
     <div class="auth-frame">
       <div class="auth-topbar">
-        <BrandMark title="Nexus SSO" subtitle="首次安装向导" />
+        <BrandMark title="一证通行" subtitle="首次安装向导" />
         <ThemeSwitch />
       </div>
 
@@ -103,12 +103,12 @@ async function proceed() {
         <section class="panel-contrast auth-card">
           <p class="eyebrow !text-slate-400">部署目标</p>
           <h1 class="mt-3 text-4xl font-display text-white">让系统在两步内可用。</h1>
-          <p class="mt-4 text-sm leading-7 text-slate-300">初始化只需要完成服务名称、OIDC Issuer 与首个超级管理员创建，成功后直接进入运营概览。</p>
+          <p class="mt-4 text-sm leading-7 text-slate-300">初始化只需要完成服务名称、OIDC Issuer 与首个超级管理员创建，成功后直接进入用户中心。</p>
           <div class="stack-list mt-8">
             <div class="panel-muted stack-item !bg-white/6 !border-white/10">
               <div>
                 <p class="text-xs uppercase tracking-[0.14em] text-slate-400">上线准备度</p>
-                <p class="mt-2 text-sm font-semibold text-slate-100">OAuth2 / OIDC / 统一登录 / 控制台</p>
+                <p class="mt-2 text-sm font-semibold text-slate-100">OAuth2 / OIDC / 统一登录 / 用户中心</p>
               </div>
               <span class="tag tag-success">P0</span>
             </div>
@@ -142,7 +142,7 @@ async function proceed() {
             <div v-if="currentStep === 0" class="space-y-5">
               <t-form :data="formData" label-align="top" class="space-y-4">
                 <t-form-item label="服务名称">
-                  <t-input v-model="formData.serviceName" size="large" placeholder="展示在登录页和控制台的名称" />
+                  <t-input v-model="formData.serviceName" size="large" placeholder="展示在登录页和用户中心的名称" />
                 </t-form-item>
                 <t-form-item label="OIDC Issuer">
                   <t-input v-model="formData.issuer" size="large" placeholder="留空时可回退到当前域名" />
@@ -181,7 +181,7 @@ async function proceed() {
           <div class="action-row mt-6">
             <t-button v-if="currentStep > 0" variant="outline" size="large" class="!px-6" @click="currentStep -= 1">上一步</t-button>
             <t-button theme="primary" size="large" :loading="submitting" class="!px-6" @click="proceed">
-              {{ currentStep === steps.length - 1 ? '初始化并进入概览' : '下一步' }}
+              {{ currentStep === steps.length - 1 ? '初始化并进入首页' : '下一步' }}
             </t-button>
           </div>
         </section>

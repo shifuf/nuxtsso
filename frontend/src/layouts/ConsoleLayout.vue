@@ -28,7 +28,7 @@ const userDisplayName = computed(() => {
 
 function ensureRouteAccess() {
   if (!bootstrapping.value && route.meta.requiresAdmin && !isAdmin.value) {
-    void router.replace('/console/account')
+    void router.replace('/user/account')
   }
 }
 
@@ -60,7 +60,7 @@ onMounted(() => { void bootstrapSession() })
     <!-- Mobile overlay -->
     <div
       v-if="mobileMenuOpen"
-      class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm md:hidden"
+      class="fixed inset-0 z-40 bg-slate-950/60 md:hidden"
       @click="mobileMenuOpen = false"
     />
 
@@ -68,7 +68,7 @@ onMounted(() => { void bootstrapSession() })
     <aside :class="['sidebar-shell', mobileMenuOpen && 'is-open', collapsed && 'is-collapsed']">
       <div class="sidebar-header">
         <BrandMark
-          title="Nexus SSO"
+          title="一证通行"
           subtitle="安全可信"
           contrast
         />
@@ -91,7 +91,7 @@ onMounted(() => { void bootstrapSession() })
 
       <!-- Navigation -->
       <nav class="sidebar-nav">
-        <div class="sidebar-section-title px-3 pb-3">控制台</div>
+        <div class="sidebar-section-title px-3 pb-3">用户中心</div>
         <router-link
           v-for="item in visibleNavItems"
           :key="item.key"
@@ -102,6 +102,11 @@ onMounted(() => { void bootstrapSession() })
           <span class="sidebar-label text-sm font-medium">{{ item.label }}</span>
         </router-link>
       </nav>
+
+      <div class="sidebar-theme-panel">
+        <p class="sidebar-section-title px-0 pb-3">显示模式</p>
+        <ThemeSwitch />
+      </div>
 
       <!-- Footer -->
       <div class="sidebar-footer">
@@ -144,7 +149,8 @@ onMounted(() => { void bootstrapSession() })
             <t-icon name="menu-fold" size="18px" />
           </button>
 
-          <div class="min-w-0">
+          <div class="console-title-block">
+            <p class="console-breadcrumb">用户中心 / {{ route.meta.title }}</p>
             <h1 class="truncate text-lg font-bold tracking-[-0.02em] text-[var(--text-primary)]">
               {{ route.meta.title }}
             </h1>

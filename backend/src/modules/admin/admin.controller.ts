@@ -18,7 +18,7 @@ import { AdminGuard } from '../../common/security/admin.guard';
 import { CurrentUser } from '../../common/security/current-user.decorator';
 import { JwtAuthGuard } from '../../common/security/jwt-auth.guard';
 import type { RequestUser } from '../../common/security/request-user.interface';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, SiteConfigDto } from '../auth/auth.service';
 import {
   AuditService,
   ClearAuditLogsDto,
@@ -459,6 +459,25 @@ export class AdminController {
     await this.recordAdminAction(user, request, {
       action: 'admin.auth_config.updated',
       metadata: config,
+    });
+    return config;
+  }
+
+  @Get('site-config')
+  getSiteConfig() {
+    return this.authService.getSiteConfig();
+  }
+
+  @Put('site-config')
+  async updateSiteConfig(
+    @Body() dto: SiteConfigDto,
+    @CurrentUser() user: RequestUser,
+    @Req() request: Request,
+  ) {
+    const config = await this.authService.updateSiteConfig(dto);
+    await this.recordAdminAction(user, request, {
+      action: 'admin.site_config.updated',
+      metadata: { ...config },
     });
     return config;
   }

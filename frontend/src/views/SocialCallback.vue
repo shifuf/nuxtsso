@@ -88,7 +88,7 @@ async function handleBindExisting() {
     )
     authStore.applySession(result)
     MessagePlugin.success('第三方账号已绑定到已有账号')
-    router.push('/console/account')
+    router.push('/user/account')
   } catch (e: unknown) {
     MessagePlugin.error((e as { message?: string })?.message || '绑定失败')
   } finally {
@@ -180,8 +180,8 @@ async function handleBindExisting() {
     </div>
 
     <div class="action-row mt-6 justify-center">
-      <t-button theme="primary" class="lumina-primary-btn" @click="router.push(authStore.isAuthenticated ? '/console/overview' : '/login')">
-        {{ authStore.isAuthenticated ? '进入控制台' : '返回登录页' }}
+      <t-button theme="primary" class="lumina-primary-btn" @click="router.push(authStore.isAuthenticated ? '/user/account' : '/login')">
+        {{ authStore.isAuthenticated ? '进入用户中心' : '返回登录页' }}
       </t-button>
     </div>
 

@@ -341,10 +341,17 @@ export class AuthController {
   @Get('config')
   async getPublicAuthConfig() {
     const config = await this.authService.getAuthConfig();
+    const site = await this.authService.getSiteConfig();
     return {
       requireEmailVerification: config.requireEmailVerification,
       publicApiEnabled: config.publicApiEnabled,
+      site,
     };
+  }
+
+  @Get('site-config')
+  getSiteConfig() {
+    return this.authService.getSiteConfig();
   }
 
   @Post('public-register')

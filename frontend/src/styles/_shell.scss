@@ -8,13 +8,106 @@
   position: relative;
 }
 
+.auth-page {
+  min-height: 100vh;
+  background: var(--bg-page);
+}
+
+.auth-portal-topbar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 280px 1fr 220px;
+  align-items: center;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border-primary);
+  padding: 0 clamp(18px, 7vw, 118px);
+  background: color-mix(in srgb, var(--surface-secondary) 92%, transparent);
+}
+
+.auth-portal-brand,
+.auth-portal-nav button,
+.auth-icon-action,
+.auth-text-action {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+}
+
+.auth-portal-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  color: var(--text-primary);
+}
+
+.auth-portal-brand span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: #17233c;
+  color: #fff;
+}
+
+.auth-portal-brand strong {
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: -0.04em;
+}
+
+.auth-portal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+}
+
+.auth-portal-nav button,
+.auth-text-action {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.auth-portal-nav button:hover,
+.auth-text-action:hover,
+.auth-icon-action:hover {
+  color: var(--text-primary);
+}
+
+.auth-portal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 22px;
+}
+
+.auth-icon-action {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+}
+
+.auth-icon-action:hover {
+  background: var(--surface-muted);
+}
+
 /* Auth layout – centered with decorative blobs */
 .auth-shell {
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 16px;
+  padding: 84px 16px 32px;
 }
 
 .auth-shell::before {
@@ -95,4 +188,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .auth-portal-topbar {
+    position: relative;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 14px 18px;
+  }
+
+  .auth-portal-nav,
+  .auth-portal-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .auth-shell {
+    min-height: auto;
+    padding: 24px 16px 32px;
+  }
 }

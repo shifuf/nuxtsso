@@ -326,7 +326,7 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
         <div class="app-dialog-grid">
           <label class="app-form-field">
             <span>应用名称</span>
-            <t-input v-model="formData.name" size="large" placeholder="例如 Lumina Console" />
+              <t-input v-model="formData.name" size="large" placeholder="例如 一证通行业务系统" />
           </label>
           <label class="app-form-field">
             <span>应用描述</span>

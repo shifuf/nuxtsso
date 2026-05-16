@@ -26,6 +26,35 @@ import { ApplicationService } from '../application/application.service';
 import { EmailConfigService } from '../email-config/email-config.service';
 import { UserService } from '../user/user.service';
 
+export interface SiteConfig {
+  siteName: string;
+  footerCopyright: string;
+  icpNumber: string;
+}
+
+export class SiteConfigDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  siteName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  footerCopyright?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  icpNumber?: string;
+}
+
+const DEFAULT_SITE_CONFIG: SiteConfig = {
+  siteName: '一证通行',
+  footerCopyright: '© 2026 一证通行. All rights reserved.',
+  icpNumber: '',
+};
+
 export class SendEmailCodeDto {
   @IsEmail()
   email!: string;
@@ -221,6 +250,42 @@ export class AuthService {
     } catch {
       return { requireEmailVerification: true, publicApiEnabled: false };
     }
+  }
+
+  async getSiteConfig(): Promise<SiteConfig> {
+    const raw = await this.prismaService.systemSetting.findUnique({
+      where: { key: 'site-config' },
+    });
+
+    if (!raw) return DEFAULT_SITE_CONFIG;
+
+    try {
+      const parsed = JSON.parse(raw.value) as Partial<SiteConfig>;
+      return {
+        siteName: parsed.siteName?.trim() || DEFAULT_SITE_CONFIG.siteName,
+        footerCopyright: parsed.footerCopyright?.trim() || DEFAULT_SITE_CONFIG.footerCopyright,
+        icpNumber: parsed.icpNumber?.trim() || DEFAULT_SITE_CONFIG.icpNumber,
+      };
+    } catch {
+      return DEFAULT_SITE_CONFIG;
+    }
+  }
+
+  async updateSiteConfig(config: SiteConfigDto): Promise<SiteConfig> {
+    const current = await this.getSiteConfig();
+    const next: SiteConfig = {
+      siteName: config.siteName?.trim() || current.siteName,
+      footerCopyright: config.footerCopyright?.trim() || current.footerCopyright,
+      icpNumber: config.icpNumber?.trim() ?? current.icpNumber,
+    };
+
+    await this.prismaService.systemSetting.upsert({
+      where: { key: 'site-config' },
+      create: { key: 'site-config', value: JSON.stringify(next) },
+      update: { value: JSON.stringify(next) },
+    });
+
+    return next;
   }
 
   async updateAuthConfig(config: { requireEmailVerification: boolean; publicApiEnabled?: boolean }) {

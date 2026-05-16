@@ -23,6 +23,8 @@
 .console-main,
 .console-body,
 .console-topbar,
+.sidebar-shell,
+.nav-link,
 .panel-card,
 .dash-panel,
 .metric-card,
@@ -43,6 +45,14 @@
 .t-tabs__nav-item {
   transition: none !important;
   animation: none !important;
+}
+
+button,
+.t-button,
+.nav-link,
+.app-card,
+.data-table tbody tr {
+  touch-action: manipulation;
 }
 
 .panel-card,
@@ -88,7 +98,9 @@
 .t-select__dropdown,
 .t-dropdown__menu,
 .t-dropdown__submenu,
-.t-picker__panel {
+.t-picker__panel,
+.t-drawer,
+.t-drawer__content-wrapper {
   transition: none !important;
   animation: none !important;
 }

@@ -14,7 +14,7 @@ const props = withDefaults(
 
 <template>
   <div class="brand-mark">
-    <div class="brand-mark__logo">NX</div>
+    <div class="brand-mark__logo">证</div>
     <div class="min-w-0">
       <p
         class="brand-mark__title truncate"

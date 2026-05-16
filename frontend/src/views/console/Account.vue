@@ -306,7 +306,7 @@ async function openSocialBindQr(provider: string) {
   socialBindMessage.value = '正在生成绑定二维码...'
 
   try {
-    const result = await authApi.createSocialBind(provider, '/console/account')
+    const result = await authApi.createSocialBind(provider, '/user/account')
     socialBindUrl.value = result.authorizeUrl
     socialBindState.value = result.state
     socialBindMessage.value = '等待扫码/授权'
@@ -603,7 +603,7 @@ async function setPassword() {
         <div class="account-app-grid">
           <label class="app-form-field">
             <span>应用名称</span>
-            <t-input v-model="applicationForm.name" size="large" placeholder="例如 Lumina Client" />
+              <t-input v-model="applicationForm.name" size="large" placeholder="例如 一证通行业务系统" />
           </label>
           <label class="app-form-field">
             <span>应用描述</span>

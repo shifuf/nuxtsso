@@ -8,6 +8,7 @@ import type {
   BackupConfig,
   BackupInfo,
   EmailConfig,
+  SiteConfig,
   SocialAccountItem,
   SocialProviderConfig,
   UserProfile,
@@ -217,6 +218,14 @@ export const adminApi = {
   async updateAuthConfig(payload: { requireEmailVerification: boolean; publicApiEnabled?: boolean }) {
     const { data } = await http.put('/api/admin/auth-config', payload);
     return data as { requireEmailVerification: boolean; publicApiEnabled: boolean };
+  },
+  async getSiteConfig() {
+    const { data } = await http.get('/api/admin/site-config');
+    return data as SiteConfig;
+  },
+  async updateSiteConfig(payload: SiteConfig) {
+    const { data } = await http.put('/api/admin/site-config', payload);
+    return data as SiteConfig;
   },
 
   // Audit

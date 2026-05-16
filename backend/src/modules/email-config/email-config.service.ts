@@ -122,11 +122,11 @@ export class EmailConfigService {
     }).format(expiresAt);
 
     return {
-      subject: `Nexus SSO ${action}验证码`,
+      subject: `一证通行${action}验证码`,
       text: `您正在进行${action}操作，验证码为 ${code}，10 分钟内有效，过期时间 ${expiresAtText}。如非本人操作，请忽略此邮件。`,
       html: `
         <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
-          <h2 style="margin:0 0 12px;font-size:20px">Nexus SSO ${action}验证码</h2>
+          <h2 style="margin:0 0 12px;font-size:20px">一证通行${action}验证码</h2>
           <p style="margin:0 0 12px">您正在进行${action}操作，请使用下面的验证码完成验证：</p>
           <div style="margin:16px 0;padding:14px 18px;background:#eff6ff;border-radius:12px;font-size:28px;font-weight:700;letter-spacing:6px;color:#0052ff;width:max-content">${code}</div>
           <p style="margin:0 0 8px">验证码 10 分钟内有效，过期时间：${expiresAtText}</p>
@@ -253,12 +253,12 @@ export class EmailConfigService {
         await transporter.sendMail({
           from: this.buildFrom(config),
           to: recipient,
-          subject: 'Nexus SSO SMTP 测试邮件',
-          text: `这是一封来自 Nexus SSO 的测试邮件，SMTP 连接验证成功。服务器：${config.host}:${config.port}`,
+          subject: '一证通行 SMTP 测试邮件',
+          text: `这是一封来自一证通行的测试邮件，SMTP 连接验证成功。服务器：${config.host}:${config.port}`,
           html: `
             <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
               <h2 style="margin:0 0 12px;font-size:20px">SMTP 测试成功</h2>
-              <p style="margin:0 0 8px">这是一封来自 Nexus SSO 的测试邮件。</p>
+              <p style="margin:0 0 8px">这是一封来自一证通行的测试邮件。</p>
               <p style="margin:0">当前 SMTP 服务器：<strong>${config.host}:${config.port}</strong></p>
             </div>
           `,

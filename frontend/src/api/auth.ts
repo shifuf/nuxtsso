@@ -6,6 +6,7 @@ import type {
   AuthResponse,
   SetupPayload,
   SetupStatus,
+  SiteConfig,
   SocialAccountBinding,
   UserProfile,
 } from '../types/api';
@@ -158,7 +159,11 @@ export const authApi = {
   },
   async getPublicConfig() {
     const { data } = await http.get('/api/auth/config');
-    return data as { requireEmailVerification: boolean; publicApiEnabled: boolean };
+    return data as { requireEmailVerification: boolean; publicApiEnabled: boolean; site?: SiteConfig };
+  },
+  async getSiteConfig() {
+    const { data } = await http.get('/api/auth/site-config');
+    return data as SiteConfig;
   },
   async listSocialBindings() {
     const { data } = await http.get('/api/auth/social/bindings');

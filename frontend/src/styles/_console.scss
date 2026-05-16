@@ -20,6 +20,23 @@
   border-bottom: 1px solid var(--border-primary);
 }
 
+.console-title-block {
+  min-width: 0;
+}
+
+.console-breadcrumb {
+  display: block;
+  max-width: min(52vw, 520px);
+  margin: 0 0 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .console-body {
   padding: 32px;
   background: var(--bg-page);
@@ -39,5 +56,9 @@
 }
 
 .mobile-nav-toggle {
+  display: none;
+}
+
+.sidebar-theme-panel {
   display: none;
 }

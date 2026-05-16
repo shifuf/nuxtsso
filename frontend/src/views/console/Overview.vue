@@ -60,7 +60,7 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
     >
       <template #actions>
         <t-button variant="outline" @click="loadData">刷新</t-button>
-        <t-button theme="primary" @click="$router.push('/console/applications')">新建应用</t-button>
+        <t-button theme="primary" @click="$router.push('/user/applications')">新建应用</t-button>
       </template>
     </PageHeader>
 
@@ -95,8 +95,8 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
       />
     </div>
 
-    <div class="grid gap-6 xl:grid-cols-[1.6fr,0.95fr]">
-      <section class="panel-card p-6">
+    <div class="overview-grid">
+      <section class="panel-card overview-app-panel">
         <div class="page-header">
           <div>
             <p class="eyebrow">接入应用</p>
@@ -105,43 +105,47 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
           <StatusTag tone="info" label="按 Client ID 扫描" />
         </div>
 
-        <div class="table-shell mt-5">
-          <div class="table-scroll">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>应用</th>
-                  <th>Client ID</th>
-                  <th>状态</th>
-                  <th>Scopes</th>
-                  <th>注册策略</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="app in applications.slice(0, 10)" :key="app.id">
-                  <td>
-                    <p class="font-semibold text-[var(--text-primary)]">{{ app.name }}</p>
-                  </td>
-                  <td class="font-mono text-xs">{{ app.clientId }}</td>
-                  <td>
-                    <StatusTag :tone="app.status === 'active' ? 'success' : 'danger'" :label="app.status === 'active' ? '启用' : '禁用'" />
-                  </td>
-                  <td class="text-sm">{{ app.scopes.length }}</td>
-                  <td>
-                    <StatusTag :tone="app.allowRegistration ? 'info' : 'neutral'" :label="app.allowRegistration ? '允许注册' : '仅登录'" />
-                  </td>
-                </tr>
-                <tr v-if="applications.length === 0 && !loading">
-                  <td colspan="5" class="text-center py-8 text-[var(--text-muted)]">暂无接入应用</td>
-                </tr>
-              </tbody>
-            </table>
+        <div class="overview-app-strip">
+          <div>
+            <p class="overview-number">{{ activeApps() }}</p>
+            <p class="overview-label">启用应用</p>
+          </div>
+          <div>
+            <p class="overview-number">{{ applications.length }}</p>
+            <p class="overview-label">接入总数</p>
+          </div>
+          <div>
+            <p class="overview-number">{{ applications.reduce((sum, app) => sum + app.redirectUris.length, 0) }}</p>
+            <p class="overview-label">回调地址</p>
+          </div>
+        </div>
+
+        <div class="overview-app-list">
+          <article v-for="app in applications.slice(0, 6)" :key="app.id" class="overview-app-item">
+            <div class="overview-app-main">
+              <div class="overview-app-avatar">{{ app.name.slice(0, 1) }}</div>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <p class="truncate font-semibold text-[var(--text-primary)]">{{ app.name }}</p>
+                  <StatusTag :tone="app.status === 'active' ? 'success' : 'danger'" :label="app.status === 'active' ? '启用' : '禁用'" />
+                </div>
+                <p class="mt-1 truncate font-mono text-xs text-[var(--text-muted)]">{{ app.clientId }}</p>
+              </div>
+            </div>
+            <div class="overview-app-meta">
+              <span>{{ app.scopes.length }} scopes</span>
+              <StatusTag :tone="app.allowRegistration ? 'info' : 'neutral'" :label="app.allowRegistration ? '允许注册' : '仅登录'" />
+            </div>
+            <p class="overview-callback">{{ app.redirectUris[0] || '未配置回调地址' }}</p>
+          </article>
+          <div v-if="applications.length === 0 && !loading" class="panel-muted p-4 text-center">
+            <p class="text-sm text-[var(--text-muted)]">暂无接入应用</p>
           </div>
         </div>
       </section>
 
-      <div class="space-y-6">
-        <section class="panel-card p-6">
+      <div class="overview-side">
+        <section class="panel-card overview-card">
           <div class="page-header">
             <div>
               <p class="eyebrow">最新事件</p>
@@ -166,7 +170,7 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
           </div>
         </section>
 
-        <section class="panel-card p-6">
+        <section class="panel-card overview-card">
           <p class="eyebrow">第三方入口状态</p>
           <div class="stack-list mt-5">
             <div
@@ -214,3 +218,130 @@ function logTone(category: string): 'success' | 'info' | 'warning' | 'danger' {
     </section>
   </div>
 </template>
+
+<style scoped>
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.overview-app-panel,
+.overview-card {
+  padding: 24px;
+}
+
+.overview-side {
+  display: grid;
+  gap: 24px;
+}
+
+.overview-app-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.overview-app-strip > div {
+  border: 1px solid var(--border-primary);
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--surface-muted);
+}
+
+.overview-number {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 30px;
+  font-weight: 950;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.overview-label {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.overview-app-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.overview-app-item {
+  min-width: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 18px;
+  padding: 16px;
+  background: var(--surface-secondary);
+}
+
+.overview-app-main {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.overview-app-avatar {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.overview-app-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.overview-callback {
+  margin: 12px 0 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .overview-app-panel,
+  .overview-card {
+    padding: 18px;
+  }
+
+  .overview-side,
+  .overview-app-list,
+  .overview-app-strip {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

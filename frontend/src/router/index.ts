@@ -47,7 +47,9 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/login',
+      name: 'Home',
+      component: () => import('../views/Home.vue'),
+      meta: { title: '首页', description: '一证通行门户导航' },
     },
     {
       path: '/',
@@ -80,43 +82,49 @@ const router = createRouter({
       meta: { title: '系统初始化', description: '完成服务配置与首个管理员创建' },
     },
     {
-      path: '/console',
+      path: '/user',
       component: () => import('../layouts/ConsoleLayout.vue'),
-      redirect: '/console/overview',
+      redirect: '/user/account',
       children: [
         {
           path: 'overview',
-          name: 'ConsoleOverview',
+          name: 'UserOverview',
           component: () => import('../views/console/Overview.vue'),
           meta: { title: '运营概览', description: '查看系统运行、应用接入和安全事件概况', requiresAuth: true, requiresAdmin: true },
         },
         {
           path: 'users',
-          name: 'ConsoleUsers',
+          name: 'UserUsers',
           component: () => import('../views/console/Users.vue'),
           meta: { title: '用户管理', description: '管理用户生命周期、状态、角色和绑定关系', requiresAuth: true, requiresAdmin: true },
         },
         {
           path: 'applications',
-          name: 'ConsoleApplications',
+          name: 'UserApplications',
           component: () => import('../views/console/Applications.vue'),
           meta: { title: '应用接入', description: '配置客户端、回调地址、Scope 与注册策略', requiresAuth: true, requiresAdmin: true },
         },
         {
+          path: 'docs',
+          name: 'UserIntegrationDocs',
+          component: () => import('../views/console/IntegrationDocs.vue'),
+          meta: { title: '对接文档', description: 'OAuth2 / OIDC 应用接入流程与接口说明', requiresAuth: true },
+        },
+        {
           path: 'audit',
-          name: 'ConsoleAudit',
+          name: 'UserAudit',
           component: () => import('../views/console/Audit.vue'),
           meta: { title: '审计日志', description: '查询认证、授权、后台与系统操作事件', requiresAuth: true, requiresAdmin: true },
         },
         {
           path: 'system',
-          name: 'ConsoleSystem',
+          name: 'UserSystem',
           component: () => import('../views/console/System.vue'),
           meta: { title: '系统设置', description: '维护认证策略、第三方登录、邮件与运维配置', requiresAuth: true, requiresAdmin: true },
         },
         {
           path: 'account',
-          name: 'ConsoleAccount',
+          name: 'UserAccount',
           component: () => import('../views/console/Account.vue'),
           meta: { title: '我的账号', description: '查看个人资料、活跃会话和第三方绑定', requiresAuth: true },
         },
@@ -167,7 +175,7 @@ const router = createRouter({
     },
     {
       path: '/dashboard',
-      redirect: '/console/overview',
+      redirect: '/user/account',
     },
     {
       path: '/auth/login',
@@ -175,7 +183,15 @@ const router = createRouter({
     },
     {
       path: '/admin/:pathMatch(.*)*',
-      redirect: '/console/overview',
+      redirect: '/user/overview',
+    },
+    {
+      path: '/console/:pathMatch(.*)*',
+      redirect: (to) => ({
+        path: to.path.replace(/^\/console/, '/user'),
+        query: to.query,
+        hash: to.hash,
+      }),
     },
   ],
 })
@@ -199,9 +215,7 @@ router.beforeEach(async (to) => {
   if (to.path === '/login' && session.hasToken && !hasAuthorizeContext) {
     return typeof to.query.redirect === 'string'
       ? to.query.redirect
-      : session.role === 'admin'
-        ? '/console/overview'
-        : '/console/account'
+      : session.role === 'admin' ? '/user/overview' : '/user/account'
   }
 
   if (to.meta.requiresAuth && !session.hasToken) {
@@ -212,15 +226,15 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAdmin && session.role !== 'admin') {
-    return session.hasToken ? '/console/account' : '/login'
+    return session.hasToken ? '/user/account' : '/login'
   }
 
   return true
 })
 
 router.afterEach((to) => {
-  const pageTitle = typeof to.meta.title === 'string' ? to.meta.title : '认证中心'
-  document.title = `${pageTitle} | Nexus SSO`
+  const pageTitle = typeof to.meta.title === 'string' ? to.meta.title : '一证通行'
+  document.title = `${pageTitle} | 一证通行`
 })
 
 export default router
