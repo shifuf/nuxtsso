@@ -37,7 +37,7 @@ function resolveDemoRedirectUris() {
 }
 
 async function main() {
-  const adminPassword = process.env.ADMIN_PASSWORD || '123';
+  const adminPassword = process.env.ADMIN_PASSWORD || '123456';
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@sso.local';
   const demoRedirectUris = resolveDemoRedirectUris();
   const passwordHash = await bcrypt.hash(adminPassword, 10);
