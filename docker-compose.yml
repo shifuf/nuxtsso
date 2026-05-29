@@ -3,6 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-bookworm-slim}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        PRISMA_ENGINES_MIRROR: ${PRISMA_ENGINES_MIRROR:-https://npmmirror.com/mirrors/prisma}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}
+        DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
     image: nuxtsso:latest
     container_name: nuxtsso
     restart: unless-stopped
@@ -19,6 +25,7 @@ services:
       JWT_ACCESS_TOKEN_EXPIRES_IN: ${JWT_ACCESS_TOKEN_EXPIRES_IN:-3600}
       JWT_REFRESH_TOKEN_EXPIRES_IN: ${JWT_REFRESH_TOKEN_EXPIRES_IN:-604800}
       JWT_KEY_ID: ${JWT_KEY_ID:-sso-prod-key}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-change-me-to-a-random-32-byte-hex-string}
       ENABLE_DEBUG_EMAIL_CODE: ${ENABLE_DEBUG_EMAIL_CODE:-false}
       BACKUP_DIR: /app/backend/backups
       AUTO_BACKUP_ENABLED: ${AUTO_BACKUP_ENABLED:-false}

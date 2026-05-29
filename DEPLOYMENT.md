@@ -81,7 +81,7 @@ docker compose up -d --build
 容器启动时会自动执行：
 
 ```bash
-prisma db push --skip-generate
+prisma db push
 ```
 
 用于同步 SQLite 表结构。

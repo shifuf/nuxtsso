@@ -1,0 +1,197 @@
+/* ── Performance Overrides ── */
+
+/*
+ * Console interactions must be immediate. Avoid universal selectors here:
+ * they make dialog open/close and theme switching trigger large style recalcs.
+ */
+:root {
+  --duration-fast: 0ms;
+  --duration-base: 0ms;
+  --duration-slow: 0ms;
+}
+
+.app-shell .animate-spin,
+.app-shell .n-spin,
+.n-modal .animate-spin,
+.n-modal .n-spin {
+  animation-duration: 0.8s !important;
+}
+
+.app-shell,
+.console-main,
+.console-body,
+.console-topbar,
+.sidebar-shell,
+.nav-link,
+.panel-card,
+.dash-panel,
+.metric-card,
+.app-card,
+.page-title,
+.page-copy,
+.action-row,
+.stack-item,
+.theme-switch,
+.brand-mark__logo,
+.token-chip,
+.mode-pill,
+.n-button,
+.n-input,
+.n-base-selection,
+.n-data-table tr,
+.n-tabs-tab {
+  transition: none !important;
+  animation: none !important;
+}
+
+button,
+.n-button,
+.nav-link,
+.app-card,
+.data-table tbody tr {
+  touch-action: manipulation;
+}
+
+.panel-card,
+.console-topbar,
+.theme-switch {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.panel-card,
+.dash-panel,
+.metric-card,
+.app-card {
+  contain: style;
+}
+
+.table-shell,
+.app-cards-grid {
+  contain: style;
+}
+
+.panel-card:hover,
+.dash-panel:hover,
+.metric-card:hover,
+.app-card:hover,
+.stack-item:hover,
+.token-chip:hover,
+.mode-pill:hover,
+.action-tag:hover,
+.n-button:hover {
+  transform: none !important;
+}
+
+.panel-card:hover,
+.dash-panel:hover,
+.metric-card:hover,
+.app-card:hover {
+  box-shadow: var(--shadow-card) !important;
+}
+
+.n-popover,
+.n-base-select-menu,
+.n-dropdown-menu,
+.n-drawer {
+  transition: none !important;
+  animation: none !important;
+}
+
+.n-modal-container,
+.n-modal-body-wrapper {
+  transition: none !important;
+}
+
+.n-modal,
+.n-base-select-menu {
+  box-shadow: var(--shadow-card) !important;
+}
+
+/* Final semantic action button colors. This file loads after Naive overrides. */
+.n-button.action-tag {
+  min-width: auto !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  letter-spacing: 0 !important;
+  line-height: 28px !important;
+}
+
+.n-button.action-tag .n-button__content {
+  line-height: 1 !important;
+}
+
+.n-button.action-edit,
+.n-button.action-bind {
+  color: #3258ff !important;
+  background: rgba(50, 88, 255, 0.12) !important;
+  border-color: rgba(50, 88, 255, 0.26) !important;
+}
+
+.n-button.action-disable,
+.n-button.action-delete {
+  color: #e11d48 !important;
+  background: rgba(244, 63, 94, 0.13) !important;
+  border-color: rgba(244, 63, 94, 0.28) !important;
+}
+
+.n-button.action-reset {
+  color: #b45309 !important;
+  background: rgba(245, 158, 11, 0.16) !important;
+  border-color: rgba(245, 158, 11, 0.30) !important;
+}
+
+.n-button.action-enable {
+  color: #047857 !important;
+  background: rgba(16, 185, 129, 0.14) !important;
+  border-color: rgba(16, 185, 129, 0.28) !important;
+}
+
+.n-button.action-secret,
+.n-button.action-neutral {
+  color: var(--text-secondary) !important;
+  background: var(--surface-muted) !important;
+  border-color: var(--border-primary) !important;
+}
+
+.n-button.action-tag:hover {
+  filter: brightness(0.98);
+}
+
+.n-button.action-tag.n-button--disabled {
+  color: var(--text-faint) !important;
+  background: var(--surface-muted) !important;
+  border-color: var(--border-primary) !important;
+  opacity: 0.55;
+}
+
+:root[data-app-theme='dark'] .n-button.action-edit,
+:root[data-app-theme='dark'] .n-button.action-bind {
+  color: #93b0ff !important;
+  background: rgba(77, 124, 255, 0.18) !important;
+  border-color: rgba(77, 124, 255, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .n-button.action-disable,
+:root[data-app-theme='dark'] .n-button.action-delete {
+  color: #fda4af !important;
+  background: rgba(244, 63, 94, 0.18) !important;
+  border-color: rgba(244, 63, 94, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .n-button.action-reset {
+  color: #fcd34d !important;
+  background: rgba(245, 158, 11, 0.18) !important;
+  border-color: rgba(245, 158, 11, 0.34) !important;
+}
+
+:root[data-app-theme='dark'] .n-button.action-enable {
+  color: #86efac !important;
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.34) !important;
+}

@@ -1,0 +1,30 @@
+/* ── Panel Cards (Lumina Auth parity) ── */
+
+.panel-card {
+  background: var(--surface-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+.panel-muted {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+}
+
+.panel-contrast {
+  background: linear-gradient(160deg, var(--surface-contrast-soft), var(--surface-contrast));
+  border: 1px solid rgba(148, 163, 184, 0.10);
+  border-radius: var(--radius-2xl);
+  color: var(--text-contrast);
+  box-shadow: var(--shadow-md);
+}
+
+.section-divider {
+  border-top: 1px solid var(--border-primary);
+}

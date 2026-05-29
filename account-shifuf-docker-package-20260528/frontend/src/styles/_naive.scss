@@ -1,0 +1,126 @@
+/* ── Naive UI Component Overrides (Lumina Auth parity) ── */
+
+.n-button {
+  border-radius: 16px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+
+  &:hover {
+    opacity: 0.92;
+  }
+
+  &:active {
+    opacity: 0.82;
+  }
+}
+
+.n-button.n-button--primary-type {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  box-shadow: var(--shadow-accent) !important;
+  font-weight: 800 !important;
+}
+
+.n-button.n-button--primary-type:hover,
+.n-button.n-button--primary-type:focus-visible {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  box-shadow: var(--shadow-accent) !important;
+}
+
+.n-button.n-button--default-type {
+  background: var(--surface-primary) !important;
+  border-color: var(--border-primary) !important;
+  color: var(--text-secondary) !important;
+}
+
+.n-button.n-button--default-type:hover {
+  background: var(--surface-muted) !important;
+  border-color: var(--border-strong) !important;
+  color: var(--accent) !important;
+}
+
+.n-input,
+.n-base-selection {
+  border-radius: 16px !important;
+}
+
+.n-input .n-input-wrapper,
+.n-base-selection .n-base-selection-label {
+  border-radius: 16px !important;
+}
+
+.n-input--focus,
+.n-base-selection--focus {
+  box-shadow: 0 0 0 3px rgba(50, 88, 255, 0.08) !important;
+}
+
+.n-form-item-label {
+  color: var(--text-faint) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+}
+
+.n-modal,
+.n-card.n-modal {
+  overflow: hidden;
+  border-radius: 2rem !important;
+  background: var(--surface-secondary) !important;
+  border: 1px solid var(--border-primary) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.n-card-header,
+.n-card__content {
+  color: var(--text-primary) !important;
+  background: var(--surface-secondary) !important;
+}
+
+.n-tabs-tab {
+  font-weight: 700 !important;
+  letter-spacing: 0.02em;
+}
+
+.n-switch.n-switch--active .n-switch__rail {
+  background-color: var(--accent) !important;
+}
+
+.n-base-select-menu {
+  border-radius: 16px !important;
+  background: var(--surface-secondary) !important;
+  border: 1px solid var(--border-primary) !important;
+  box-shadow: var(--shadow-card) !important;
+}
+
+.n-data-table {
+  color: var(--text-secondary) !important;
+  background: var(--surface-primary) !important;
+  border-radius: 2rem !important;
+  overflow: hidden;
+}
+
+.n-data-table th,
+.n-data-table td {
+  border-color: var(--border-primary) !important;
+}
+
+.n-data-table .n-data-table-th {
+  color: var(--text-faint) !important;
+  background: var(--surface-muted) !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.n-data-table .n-data-table-tr:hover .n-data-table-td {
+  background: var(--accent-softer) !important;
+}
+
+.n-pagination {
+  color: var(--text-muted) !important;
+}
+
+.n-steps .n-step-indicator {
+  border-radius: 50% !important;
+}

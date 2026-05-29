@@ -1,0 +1,90 @@
+/* ── Dashboard Grid System (Lumina Auth parity) ── */
+
+.dash-grid {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.dash-col-full   { grid-column: span 12; }
+.dash-col-wide   { grid-column: span 8; }
+.dash-col-narrow { grid-column: span 4; }
+.dash-col-half   { grid-column: span 6; }
+.dash-col-third  { grid-column: span 4; }
+
+.dash-metrics {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* ── Dashboard Panel Zones ── */
+.dash-panel {
+  background: var(--surface-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: 24px;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+.dash-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.dash-panel-title {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1.35;
+}
+
+.dash-panel-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+/* ── Metric Cards (Lumina style) ── */
+.metric-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
+}
+
+.metric-value {
+  color: var(--text-primary);
+  font-size: 36px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.metric-caption {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
