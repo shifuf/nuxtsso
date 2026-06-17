@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { NButton, NInput, NSelect, NSwitch, NTabs, NTabPane, NModal, NRadioGroup, NRadioButton } from 'naive-ui'
 import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
-import type { SocialProviderConfig, EmailConfig, BackupInfo, SiteConfig } from '../../types/api'
+import type {
+  SocialProviderConfig,
+  SocialIdentityStrategy,
+  SocialProfileSyncMode,
+  EmailConfig,
+  BackupInfo,
+  SiteConfig,
+} from '../../types/api'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
 import { formatDateTime } from '../../utils/console'
+import { foldWechatProviders, getWechatProviderNameByType } from '../../utils/socialProviders'
 
 const activeTab = ref('auth')
 const loading = ref(false)
@@ -22,6 +30,7 @@ const siteConfig = reactive<SiteConfig>({
 
 // ── Social Providers ──
 const socialProviders = ref<SocialProviderConfig[]>([])
+const visibleSocialProviders = computed(() => foldWechatProviders(socialProviders.value))
 const editingProvider = ref<SocialProviderConfig | null>(null)
 const showProviderDialog = ref(false)
 const providerForm = reactive({
@@ -36,6 +45,11 @@ const providerForm = reactive({
   apiUrl: '',
   redirectUri: '',
   scopes: '',
+  fieldMapping: '',
+  signatureSecret: '',
+  ipWhitelist: '',
+  identityStrategy: 'unionid_or_app_openid' as SocialIdentityStrategy,
+  profileSyncMode: 'fill_missing' as SocialProfileSyncMode,
 })
 
 // ── Email Config ──
@@ -62,6 +76,25 @@ const intervalOptions = [
   { label: '每天 02:00', value: 24 },
   { label: '每 48 小时', value: 48 },
 ]
+
+const identityStrategyOptions = [
+  { label: '优先 unionid，无 unionid 时使用 AppID + openid', value: 'unionid_or_app_openid' },
+  { label: '必须有 unionid 才允许登录', value: 'unionid_only' },
+  { label: '始终使用 AppID + openid', value: 'app_openid' },
+  { label: '使用第三方返回的唯一 ID', value: 'provider_user_id' },
+]
+
+const profileSyncModeOptions = [
+  { label: '只补齐空字段', value: 'fill_missing' },
+  { label: '每次登录同步资料', value: 'every_login' },
+  { label: '仅首次注册写入资料', value: 'registration_only' },
+]
+
+function normalizeProviderType(type?: string | null): SocialProviderConfig['type'] {
+  if (type === 'aggregated') return 'aggregated'
+  if (type === 'wechat-mini') return 'wechat-mini'
+  return 'oauth'
+}
 
 onMounted(async () => {
   await loadAll()
@@ -118,8 +151,46 @@ async function saveAuthConfig() {
 
 // ── Social ──
 function openProviderEdit(provider: SocialProviderConfig) {
+  const target = provider.name === 'wechat'
+    ? findWechatProviderByType(provider.type)
+    : provider
+  editingProvider.value = target
+  fillProviderForm(target, provider.name === 'wechat' ? 'wechat' : target.name)
+  showProviderDialog.value = true
+}
+
+function findProviderByName(name: string) {
+  return socialProviders.value.find(provider => provider.name === name)
+}
+
+function findWechatProviderByType(type?: string | null): SocialProviderConfig {
+  const providerType = normalizeProviderType(type)
+  const targetName = getWechatProviderNameByType(providerType)
+  return findProviderByName(targetName) ?? {
+    name: targetName,
+    type: providerType,
+    enabled: false,
+    clientId: '',
+    clientSecret: '',
+    apiUrl: '',
+    redirectUri: '',
+    scopes: [],
+    authUrl: '',
+    tokenUrl: '',
+    userInfoUrl: '',
+    fieldMapping: '',
+    signatureSecret: '',
+    ipWhitelist: '',
+    identityStrategy: 'unionid_or_app_openid',
+    profileSyncMode: 'fill_missing',
+    miniProgramUseDynamicCode: true,
+    miniProgramSubmitFields: ['jsCode'],
+  } satisfies SocialProviderConfig
+}
+
+function fillProviderForm(provider: SocialProviderConfig, displayName = provider.name) {
   editingProvider.value = provider
-  providerForm.name = provider.name
+  providerForm.name = displayName
   providerForm.type = provider.type
   providerForm.enabled = provider.enabled
   providerForm.clientId = provider.clientId
@@ -130,12 +201,25 @@ function openProviderEdit(provider: SocialProviderConfig) {
   providerForm.apiUrl = provider.apiUrl || ''
   providerForm.redirectUri = provider.redirectUri || ''
   providerForm.scopes = provider.scopes?.join('\n') || ''
-  showProviderDialog.value = true
+  providerForm.fieldMapping = provider.fieldMapping || ''
+  providerForm.signatureSecret = provider.signatureSecret || ''
+  providerForm.ipWhitelist = provider.ipWhitelist || ''
+  providerForm.identityStrategy = provider.identityStrategy || 'unionid_or_app_openid'
+  providerForm.profileSyncMode = provider.profileSyncMode || 'fill_missing'
+}
+
+function handleProviderTypeChange(type: string) {
+  if (providerForm.name !== 'wechat') return
+  fillProviderForm(findWechatProviderByType(type), 'wechat')
 }
 
 function optionalText(value: string) {
   const trimmed = value.trim()
   return trimmed || undefined
+}
+
+function splitList(value: string) {
+  return value.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
 }
 
 function closeProviderDialog() {
@@ -147,24 +231,47 @@ async function saveProvider() {
   saving.value = true
   try {
     const isAggregated = providerForm.type === 'aggregated'
+    const isWechatMini = providerForm.type === 'wechat-mini'
+    const isWechat = providerForm.name === 'wechat'
+    const targetName = isWechat ? getWechatProviderNameByType(providerForm.type) : providerForm.name
+    const usesDefaultWechatPolicy = isWechat || isAggregated || isWechatMini
     const payload = {
       type: providerForm.type || undefined,
       enabled: providerForm.enabled,
       clientId: providerForm.clientId.trim(),
       clientSecret: providerForm.clientSecret.trim(),
       authUrl: isAggregated ? undefined : optionalText(providerForm.authUrl),
-      tokenUrl: isAggregated ? undefined : optionalText(providerForm.tokenUrl),
-      userInfoUrl: isAggregated ? undefined : optionalText(providerForm.userInfoUrl),
+      tokenUrl: isAggregated || isWechatMini ? undefined : optionalText(providerForm.tokenUrl),
+      userInfoUrl: isAggregated || isWechatMini ? undefined : optionalText(providerForm.userInfoUrl),
       apiUrl: isAggregated ? optionalText(providerForm.apiUrl) : undefined,
       redirectUri: optionalText(providerForm.redirectUri),
-      scopes: providerForm.scopes ? providerForm.scopes.split('\n').map(s => s.trim()).filter(Boolean) : [],
+      scopes: isWechatMini ? [] : (providerForm.scopes ? splitList(providerForm.scopes) : []),
+      fieldMapping: isWechatMini ? undefined : optionalText(providerForm.fieldMapping),
+      signatureSecret: isWechatMini ? undefined : providerForm.signatureSecret.trim(),
+      ipWhitelist: isWechatMini ? undefined : optionalText(providerForm.ipWhitelist),
+      identityStrategy: usesDefaultWechatPolicy ? 'unionid_or_app_openid' : providerForm.identityStrategy,
+      profileSyncMode: usesDefaultWechatPolicy ? 'fill_missing' : providerForm.profileSyncMode,
+      miniProgramUseDynamicCode: isWechatMini ? true : undefined,
+      miniProgramSubmitFields: isWechatMini ? ['jsCode'] : undefined,
     }
-    await adminApi.updateSocialProvider(providerForm.name, payload)
+    await adminApi.updateSocialProvider(targetName, payload)
     MessagePlugin.success('提供方配置已更新')
     closeProviderDialog()
     await loadAll()
   } catch (e: unknown) { MessagePlugin.error((e as { message?: string })?.message || '保存失败') }
   finally { saving.value = false }
+}
+
+function providerTypeLabel(type: string) {
+  if (type === 'aggregated') return '聚合平台'
+  if (type === 'wechat-mini') return '自建小程序'
+  return '官方直连'
+}
+
+function showProviderPolicyFields() {
+  return providerForm.name !== 'wechat' &&
+    providerForm.type !== 'wechat-mini' &&
+    providerForm.type !== 'aggregated'
 }
 
 async function initProviders() {
@@ -372,14 +479,14 @@ function formatBytes(bytes: number) {
             </div>
             <div class="mt-4 grid gap-3">
               <div
-                v-for="provider in socialProviders"
+                v-for="provider in visibleSocialProviders"
                 :key="provider.name"
                 class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div>
                     <p class="text-sm font-semibold text-[var(--text-primary)]">{{ provider.name }}</p>
-                    <p class="mt-1 text-sm text-[var(--text-muted)]">{{ provider.type === 'aggregated' ? '聚合平台' : '官方直连' }}</p>
+                    <p class="mt-1 text-sm text-[var(--text-muted)]">{{ providerTypeLabel(provider.type) }}</p>
                   </div>
                   <div class="flex items-center gap-2">
                     <StatusTag :tone="provider.enabled ? 'success' : 'warning'" :label="provider.enabled ? '已启用' : '未启用'" />
@@ -388,7 +495,7 @@ function formatBytes(bytes: number) {
                   </div>
                 </div>
               </div>
-              <div v-if="socialProviders.length === 0" class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4">
+              <div v-if="visibleSocialProviders.length === 0" class="rounded-2xl border border-[var(--border-primary)] bg-[var(--surface-primary)] px-4 py-4">
                 <p class="text-sm text-[var(--text-muted)]">暂未配置第三方提供方，点击"初始化默认提供方"快速创建。</p>
               </div>
             </div>
@@ -523,34 +630,71 @@ function formatBytes(bytes: number) {
       v-model:show="showProviderDialog"
       preset="card"
       title="编辑提供方配置"
-      style="width: 600px"
+      style="width: min(760px, 92vw)"
       @close="closeProviderDialog"
     >
       <div class="space-y-4 pt-2">
         <NInput v-model:value="providerForm.name" size="large" placeholder="提供方名称" disabled />
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm text-[var(--text-primary)]">来源类型</span>
-          <NRadioGroup v-model:value="providerForm.type">
+          <NRadioGroup v-model:value="providerForm.type" @update:value="handleProviderTypeChange">
             <NRadioButton value="oauth">官方直连</NRadioButton>
             <NRadioButton value="aggregated">聚合平台</NRadioButton>
+            <NRadioButton v-if="providerForm.name === 'wechat'" value="wechat-mini">自建小程序</NRadioButton>
           </NRadioGroup>
         </div>
         <div class="flex items-center justify-between gap-3">
           <span class="text-sm text-[var(--text-primary)]">启用</span>
           <NSwitch v-model:value="providerForm.enabled" />
         </div>
-        <NInput v-model:value="providerForm.clientId" size="large" placeholder="Client ID" />
-        <NInput v-model:value="providerForm.clientSecret" size="large" type="password" placeholder="Client Secret" />
+        <NInput
+          v-model:value="providerForm.clientId"
+          size="large"
+          :placeholder="providerForm.type === 'wechat-mini' ? '小程序 AppID' : 'Client ID / AppID'"
+        />
+        <NInput
+          v-model:value="providerForm.clientSecret"
+          size="large"
+          type="password"
+          :placeholder="providerForm.type === 'wechat-mini' ? '小程序 AppSecret' : 'Client Secret / AppSecret'"
+        />
+        <div v-if="showProviderPolicyFields()" class="grid gap-4 sm:grid-cols-2">
+          <div class="space-y-2">
+            <span class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">身份策略</span>
+            <NSelect
+              v-model:value="providerForm.identityStrategy"
+              size="large"
+              :options="identityStrategyOptions"
+            />
+          </div>
+          <div class="space-y-2">
+            <span class="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">资料同步</span>
+            <NSelect
+              v-model:value="providerForm.profileSyncMode"
+              size="large"
+              :options="profileSyncModeOptions"
+            />
+          </div>
+        </div>
         <template v-if="providerForm.type === 'aggregated'">
           <NInput v-model:value="providerForm.apiUrl" size="large" placeholder="聚合 API 地址" />
+        </template>
+        <template v-else-if="providerForm.type === 'wechat-mini'">
+          <NInput v-model:value="providerForm.authUrl" size="large" placeholder="固定小程序码图片 URL（可选兜底）" />
+          <NInput v-model:value="providerForm.redirectUri" size="large" placeholder="小程序登录页路径（默认 pages/wechat-scan-login/wechat-scan-login）" />
         </template>
         <template v-else>
           <NInput v-model:value="providerForm.authUrl" size="large" placeholder="Auth URL" />
           <NInput v-model:value="providerForm.tokenUrl" size="large" placeholder="Token URL" />
           <NInput v-model:value="providerForm.userInfoUrl" size="large" placeholder="UserInfo URL" />
+          <NInput v-model:value="providerForm.redirectUri" size="large" placeholder="授权回调域名或完整回调地址（可选）" />
         </template>
-        <NInput v-model:value="providerForm.redirectUri" size="large" placeholder="Redirect URI（可选）" />
-        <NInput v-model:value="providerForm.scopes" type="textarea" placeholder="Scopes（每行一个）" :autosize="{ minRows: 1, maxRows: 3 }" />
+        <template v-if="providerForm.type !== 'wechat-mini'">
+          <NInput v-model:value="providerForm.scopes" type="textarea" placeholder="Scopes（每行一个）" :autosize="{ minRows: 1, maxRows: 3 }" />
+          <NInput v-model:value="providerForm.fieldMapping" type="textarea" placeholder="字段映射 JSON（可选，例如 providerUserId/nickname/avatar/email/phone/openid/unionid）" :autosize="{ minRows: 2, maxRows: 4 }" />
+          <NInput v-model:value="providerForm.signatureSecret" size="large" type="password" placeholder="HMAC-SHA256 签名密钥（可选，按回调参数 key 排序，排除 sign/signature）" />
+          <NInput v-model:value="providerForm.ipWhitelist" type="textarea" placeholder="IP 白名单（可选，每行一个或 JSON 数组）" :autosize="{ minRows: 1, maxRows: 3 }" />
+        </template>
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">

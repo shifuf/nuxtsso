@@ -3,6 +3,7 @@ import http from '../api/http'
 
 let setupChecked = false
 let systemInitialized = false
+const AUTH_STORAGE_KEY = 'sso-auth-session'
 
 export function resetSetupCache() {
   setupChecked = false
@@ -22,25 +23,108 @@ async function checkSetupStatus(): Promise<boolean> {
 }
 
 function readSessionSnapshot() {
-  const rawSession = window.localStorage.getItem('sso-auth-session')
-  let hasToken = false
+  const rawSession = window.localStorage.getItem(AUTH_STORAGE_KEY)
+  let hasUser = false
   let role: 'admin' | 'user' | null = null
 
   if (rawSession) {
     try {
       const session = JSON.parse(rawSession) as {
-        accessToken?: string
         user?: { role?: 'admin' | 'user' }
       }
-      hasToken = Boolean(session.accessToken)
+      hasUser = Boolean(session.user)
       role = session.user?.role ?? null
     } catch {
-      window.localStorage.removeItem('sso-auth-session')
+      window.localStorage.removeItem(AUTH_STORAGE_KEY)
     }
   }
 
-  return { hasToken, role }
+  return { hasUser, role }
 }
+
+async function probeSessionSnapshot() {
+  try {
+    const { data } = await http.get('/api/auth/session')
+    const user = data as { role?: 'admin' | 'user' }
+    window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ user }))
+    return {
+      hasUser: true,
+      role: user.role ?? null,
+    }
+  } catch {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    return { hasUser: false, role: null }
+  }
+}
+
+const wechatTestRoutes = import.meta.env.DEV
+  ? [
+      {
+        path: 'wechat-test',
+        name: 'WechatTest',
+        component: () => import('../views/WechatMiniTest.vue'),
+        meta: { title: '微信扫码测试', description: '微信扫码登录联调页面' },
+      },
+    ]
+  : [
+      {
+        path: 'wechat-test',
+        redirect: '/login',
+      },
+    ]
+
+const opsRoutes = import.meta.env.DEV
+  ? [
+      {
+        path: '/ops',
+        component: () => import('../layouts/ConsoleLayout.vue'),
+        redirect: '/ops/dashboard',
+        children: [
+          {
+            path: 'dashboard',
+            name: 'OpsDashboard',
+            component: () => import('../views/ops/Dashboard.vue'),
+            meta: { title: '运维仪表盘', requiresAuth: true, requiresAdmin: true },
+          },
+          {
+            path: 'standard',
+            name: 'OpsStandardDashboard',
+            component: () => import('../views/ops/StandardDashboard.vue'),
+            meta: { title: '标准仪表盘', requiresAuth: true, requiresAdmin: true },
+          },
+          {
+            path: 'aether/overview',
+            name: 'OpsAetherOverview',
+            component: () => import('../views/ops/AetherOverview.vue'),
+            meta: { title: 'Aether 概览', requiresAuth: true, requiresAdmin: true },
+          },
+          {
+            path: 'aether/nodes',
+            name: 'OpsAetherNodes',
+            component: () => import('../views/ops/AetherNodes.vue'),
+            meta: { title: 'Aether 节点', requiresAuth: true, requiresAdmin: true },
+          },
+          {
+            path: 'resources',
+            name: 'OpsResources',
+            component: () => import('../views/ops/Resources.vue'),
+            meta: { title: '资源管理', requiresAuth: true, requiresAdmin: true },
+          },
+          {
+            path: 'settings',
+            name: 'OpsSettings',
+            component: () => import('../views/ops/Settings.vue'),
+            meta: { title: '运维设置', requiresAuth: true, requiresAdmin: true },
+          },
+        ],
+      },
+    ]
+  : [
+      {
+        path: '/ops/:pathMatch(.*)*',
+        redirect: '/user/system',
+      },
+    ]
 
 const router = createRouter({
   history: createWebHistory(),
@@ -73,6 +157,7 @@ const router = createRouter({
           component: () => import('../views/SocialCallback.vue'),
           meta: { title: '第三方回调', description: '第三方登录回调状态' },
         },
+        ...wechatTestRoutes,
       ],
     },
     {
@@ -130,49 +215,7 @@ const router = createRouter({
         },
       ],
     },
-    {
-      path: '/ops',
-      component: () => import('../layouts/ConsoleLayout.vue'),
-      redirect: '/ops/dashboard',
-      children: [
-        {
-          path: 'dashboard',
-          name: 'OpsDashboard',
-          component: () => import('../views/ops/Dashboard.vue'),
-          meta: { title: '运维仪表盘', requiresAuth: true, requiresAdmin: true },
-        },
-        {
-          path: 'standard',
-          name: 'OpsStandardDashboard',
-          component: () => import('../views/ops/StandardDashboard.vue'),
-          meta: { title: '标准仪表盘', requiresAuth: true, requiresAdmin: true },
-        },
-        {
-          path: 'aether/overview',
-          name: 'OpsAetherOverview',
-          component: () => import('../views/ops/AetherOverview.vue'),
-          meta: { title: 'Aether 概览', requiresAuth: true, requiresAdmin: true },
-        },
-        {
-          path: 'aether/nodes',
-          name: 'OpsAetherNodes',
-          component: () => import('../views/ops/AetherNodes.vue'),
-          meta: { title: 'Aether 节点', requiresAuth: true, requiresAdmin: true },
-        },
-        {
-          path: 'resources',
-          name: 'OpsResources',
-          component: () => import('../views/ops/Resources.vue'),
-          meta: { title: '资源管理', requiresAuth: true, requiresAdmin: true },
-        },
-        {
-          path: 'settings',
-          name: 'OpsSettings',
-          component: () => import('../views/ops/Settings.vue'),
-          meta: { title: '运维设置', requiresAuth: true, requiresAdmin: true },
-        },
-      ],
-    },
+    ...opsRoutes,
     {
       path: '/dashboard',
       redirect: '/user/account',
@@ -207,18 +250,22 @@ router.beforeEach(async (to) => {
     return { path: '/setup' }
   }
 
-  const session = readSessionSnapshot()
   const hasAuthorizeContext =
     typeof to.query.client_id === 'string' &&
     typeof to.query.redirect_uri === 'string'
+  let session = readSessionSnapshot()
 
-  if (to.path === '/login' && session.hasToken && !hasAuthorizeContext) {
+  if (!session.hasUser && (to.meta.requiresAuth || (to.path === '/login' && !hasAuthorizeContext))) {
+    session = await probeSessionSnapshot()
+  }
+
+  if (to.path === '/login' && session.hasUser && !hasAuthorizeContext) {
     return typeof to.query.redirect === 'string'
       ? to.query.redirect
       : session.role === 'admin' ? '/user/overview' : '/user/account'
   }
 
-  if (to.meta.requiresAuth && !session.hasToken) {
+  if (to.meta.requiresAuth && !session.hasUser) {
     return {
       path: '/login',
       query: { redirect: to.fullPath },
@@ -226,7 +273,7 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAdmin && session.role !== 'admin') {
-    return session.hasToken ? '/user/account' : '/login'
+    return session.hasUser ? '/user/account' : '/login'
   }
 
   return true

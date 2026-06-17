@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { NButton, NInput, NModal, NSwitch, NDropdown, NUpload, type UploadCustomRequestOptions, type UploadFileInfo } from 'naive-ui'
+import { NButton, NInput, NModal, NSelect, NSwitch, NDropdown, NUpload, type UploadCustomRequestOptions, type UploadFileInfo } from 'naive-ui'
 import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { authApi } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
 import type { AccountSession, SocialAccountBinding, ApplicationItem, ApplicationCreateResponse } from '../../types/api'
 import { formatDateTime, parseBrowser } from '../../utils/console'
 import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../../utils/qrcode'
+import { foldWechatProviders, isProviderBound, resolveRuntimeProviderName } from '../../utils/socialProviders'
+import { APPLICATION_SCOPE_OPTIONS, defaultApplicationScopes, normalizeApplicationScopes, scopeLabel } from '../../utils/oauthScopes'
 import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
@@ -17,7 +19,7 @@ const loading = ref(true)
 const saving = ref(false)
 const sessions = ref<AccountSession[]>([])
 const bindings = ref<SocialAccountBinding[]>([])
-const socialProviders = ref<Array<{ name: string; enabled: boolean }>>([])
+const socialProviders = ref<Array<{ name: string; type?: string; enabled: boolean }>>([])
 const applications = ref<ApplicationItem[]>([])
 const createdApplication = ref<ApplicationCreateResponse | null>(null)
 
@@ -27,11 +29,19 @@ const avatarUploadFiles = ref<UploadFileInfo[]>([])
 const passwordForm = ref({ password: '', confirmPassword: '' })
 const showPasswordSection = ref(false)
 const showApplicationForm = ref(false)
-const applicationForm = ref({
+interface ApplicationFormData {
+  name: string
+  description: string
+  redirectUris: string
+  scopes: string[]
+  allowRegistration: boolean
+}
+
+const applicationForm = ref<ApplicationFormData>({
   name: '',
   description: '',
   redirectUris: '',
-  scopes: 'openid\nprofile\nemail',
+  scopes: defaultApplicationScopes(),
   allowRegistration: true,
 })
 
@@ -42,7 +52,7 @@ const selectedBindProvider = ref('')
 const socialBindUrl = ref('')
 const socialBindDisplayUrl = ref('')
 const socialBindState = ref('')
-const socialBindStatus = ref<'idle' | 'pending' | 'success' | 'failed' | 'expired'>('idle')
+const socialBindStatus = ref<'idle' | 'pending' | 'scanned' | 'success' | 'failed' | 'expired'>('idle')
 const socialBindMessage = ref('')
 let socialBindTimer: ReturnType<typeof setInterval> | null = null
 const socialBindQrOptions = {
@@ -67,7 +77,7 @@ const isSocial = () => {
 const isBoundToUser = () => Boolean(user()?.boundToUser)
 const availableBindProviders = computed(() => {
   const bound = new Set(bindings.value.map(item => item.provider))
-  return socialProviders.value.filter(item => item.enabled && !bound.has(item.name))
+  return socialProviders.value.filter(item => item.enabled && !isProviderBound(item, bound))
 })
 
 const availableBindDropdownOptions = computed(() =>
@@ -98,7 +108,7 @@ async function loadData() {
     ])
     sessions.value = sessionsRes
     bindingsRes && (bindings.value = bindingsRes)
-    socialProviders.value = providersRes
+    socialProviders.value = foldWechatProviders(providersRes)
     applications.value = await authApi.listAccountApplications()
 
     const u = user()
@@ -179,7 +189,7 @@ async function createApplication() {
       name: applicationForm.value.name.trim(),
       description: applicationForm.value.description.trim() || undefined,
       redirectUris: applicationForm.value.redirectUris.split('\n').map(s => s.trim()).filter(Boolean),
-      scopes: applicationForm.value.scopes.split('\n').map(s => s.trim()).filter(Boolean),
+      scopes: normalizeApplicationScopes(applicationForm.value.scopes),
       allowRegistration: applicationForm.value.allowRegistration,
     })
     createdApplication.value = result
@@ -189,7 +199,7 @@ async function createApplication() {
       name: '',
       description: '',
       redirectUris: '',
-      scopes: 'openid\nprofile\nemail',
+      scopes: defaultApplicationScopes(),
       allowRegistration: true,
     }
     MessagePlugin.success('应用已创建，等待管理员审核启用')
@@ -202,7 +212,7 @@ function openApplicationDialog() {
     name: '',
     description: '',
     redirectUris: '',
-    scopes: 'openid\nprofile\nemail',
+    scopes: defaultApplicationScopes(),
     allowRegistration: true,
   }
   showApplicationForm.value = true
@@ -271,6 +281,8 @@ async function unbindSocial(provider: string) {
 function providerLabel(name: string) {
   const labels: Record<string, string> = {
     wechat: '微信',
+    'wechat-aggregated': '微信',
+    'wechat-mini': '微信',
     qq: 'QQ',
     github: 'GitHub',
     google: 'Google',
@@ -315,10 +327,16 @@ async function openSocialBindQr(provider: string) {
   socialBindMessage.value = '正在生成绑定二维码...'
 
   try {
-    const result = await authApi.createSocialBind(provider, '/user/account')
+    const selectedProvider = socialProviders.value.find(item => item.name === provider)
+    const runtimeProvider = selectedProvider
+      ? resolveRuntimeProviderName(selectedProvider)
+      : provider
+    const result = await authApi.createSocialBind(runtimeProvider, '/user/account')
     socialBindUrl.value = result.authorizeUrl
     socialBindState.value = result.state
-    socialBindMessage.value = '等待扫码/授权'
+    socialBindMessage.value = provider === 'wechat'
+      ? '请使用微信扫码'
+      : '等待扫码/授权'
     socialBindDisplayUrl.value = await createQrDisplayUrl(
       socialBindUrl.value,
       result.qrCodeUrl,
@@ -362,6 +380,12 @@ async function checkSocialBindStatus() {
         await authStore.refreshSession()
         await loadData()
       }, 900)
+      return
+    }
+
+    if (result.status === 'scanned') {
+      socialBindStatus.value = 'scanned'
+      socialBindMessage.value = '已扫码，请继续完成确认'
       return
     }
 
@@ -591,6 +615,9 @@ async function setPassword() {
             <StatusTag :tone="app.status === 'active' ? 'success' : 'danger'" :label="app.status === 'active' ? '允许运行' : '禁止运行'" />
           </div>
           <p class="mt-3 truncate text-xs text-[var(--text-muted)]">{{ app.redirectUris[0] || '未配置回调地址' }}</p>
+          <div v-if="app.scopes.length" class="mt-2 flex flex-wrap gap-1">
+            <span v-for="scope in app.scopes" :key="scope" class="token-chip text-xs" :title="scope">{{ scopeLabel(scope) }}</span>
+          </div>
         </div>
         <div v-if="applications.length === 0 && !loading" class="panel-muted p-4 text-center">
           <p class="text-sm text-[var(--text-muted)]">暂无自助接入应用</p>
@@ -626,11 +653,13 @@ async function setPassword() {
         </label>
         <label class="app-form-field">
           <span>Scope 权限</span>
-          <NInput
+          <NSelect
             v-model:value="applicationForm.scopes"
-            type="textarea"
-            placeholder="每行一个，例如 openid / profile / email"
-            :autosize="{ minRows: 3, maxRows: 5 }"
+            :options="APPLICATION_SCOPE_OPTIONS"
+            placeholder="选择应用可申请的用户信息"
+            multiple
+            size="large"
+            :max-tag-count="3"
           />
         </label>
         <div class="app-dialog-option">

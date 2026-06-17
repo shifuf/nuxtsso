@@ -6,15 +6,17 @@ import {
   Param,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import type { Request, Response } from 'express';
+import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ConfigService } from '@nestjs/config';
 import { CurrentUser } from '../../common/security/current-user.decorator';
 import { JwtAuthGuard } from '../../common/security/jwt-auth.guard';
 import type { RequestUser } from '../../common/security/request-user.interface';
+import { SessionCookieService } from '../../common/security/session-cookie.service';
 import { randomBytes } from 'node:crypto';
 import { SocialAuthService, SocialBindRequiredError } from './social-auth.service';
 
@@ -33,6 +35,54 @@ class CreateSocialLoginQrDto {
   @IsOptional()
   @IsString()
   redirectUri?: string;
+}
+
+class ConfirmWechatMiniLoginDto {
+  @IsString()
+  state!: string;
+
+  @IsOptional()
+  @IsString()
+  jsCode?: string;
+
+  @IsOptional()
+  @IsString()
+  providerUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  openid?: string;
+
+  @IsOptional()
+  @IsString()
+  unionid?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  nickName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  nickname?: string;
+
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  avatar?: string;
+
+  @IsOptional()
+  @IsObject()
+  profile?: Record<string, unknown>;
+}
+
+class RedeemSocialLoginTicketDto {
+  @IsString()
+  ticket!: string;
 }
 
 const CALLBACK_PATH = '/api/auth/callback';
@@ -57,10 +107,19 @@ export class SocialAuthController {
   constructor(
     private readonly socialAuthService: SocialAuthService,
     private readonly configService: ConfigService,
+    private readonly sessionCookieService: SessionCookieService,
   ) {}
 
   private getFrontendUrl(): string {
     return this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
+  }
+
+  private getRequestIp(req: Request) {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (Array.isArray(forwardedFor)) {
+      return forwardedFor[0];
+    }
+    return forwardedFor ?? req.ip ?? req.socket.remoteAddress ?? null;
   }
 
   private escapeHtml(value: string) {
@@ -153,6 +212,24 @@ export class SocialAuthController {
     return this.socialAuthService.getLoginAuthorizationStatus(state);
   }
 
+  @Post('wechat-mini/login-qr')
+  createWechatMiniLoginAuthorization(@Body() dto: CreateSocialLoginQrDto) {
+    return this.socialAuthService.createWechatMiniLoginAuthorization(
+      dto.clientId,
+      dto.redirectUri,
+    );
+  }
+
+  @Get('wechat-mini/login-status')
+  getWechatMiniLoginStatus(@Query('state') state: string) {
+    return this.socialAuthService.getLoginAuthorizationStatus(state);
+  }
+
+  @Post('wechat-mini/login-confirm')
+  confirmWechatMiniLogin(@Body() dto: ConfirmWechatMiniLoginDto) {
+    return this.socialAuthService.confirmWechatMiniLogin(dto);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Delete('social/:provider/bind')
   unbind(
@@ -174,6 +251,11 @@ export class SocialAuthController {
       const appContext = clientId && redirectUri
         ? `?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`
         : '';
+      await this.socialAuthService.assertProviderAllowedForApplication(
+        provider,
+        clientId,
+        redirectUri,
+      );
       const encodedState = encodeState(state ?? randomBytes(16).toString('base64url'), provider);
       const authorizeUrl = await this.socialAuthService.buildAuthorizeRedirect(
         provider,
@@ -199,6 +281,8 @@ export class SocialAuthController {
     @Query('error') error: string | undefined,
     @Query('client_id') clientId: string | undefined,
     @Query('redirect_uri') redirectUri: string | undefined,
+    @Query() query: Record<string, unknown>,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     const decoded = decodeState(state);
@@ -235,6 +319,10 @@ export class SocialAuthController {
         code,
         decoded?.csrf,
         { clientId, redirectUri },
+        {
+          query,
+          requestIp: this.getRequestIp(req),
+        },
       );
 
       if (result.mode === 'bind') {
@@ -264,14 +352,9 @@ export class SocialAuthController {
         );
       }
 
-      const params = new URLSearchParams({
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-        token_type: result.token_type,
-        expires_in: String(result.expires_in),
-        scope: result.scope,
-        user: JSON.stringify(result.user),
-      });
+      const { mode: _mode, ...authResult } = result;
+      const ticket = await this.socialAuthService.createLoginTicket(authResult);
+      const params = new URLSearchParams({ ticket });
 
       if (clientId) params.set('client_id', clientId);
       if (redirectUri) params.set('redirect_uri', redirectUri);
@@ -326,12 +409,29 @@ export class SocialAuthController {
   @Post('social/bind-existing')
   async bindExisting(
     @Body() dto: { state: string; username: string; password: string },
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.socialAuthService.bindExistingAccount(
+    const result = await this.socialAuthService.bindExistingAccount(
       dto.state,
       dto.username,
       dto.password,
     );
+    this.sessionCookieService.setAuthCookies(response, result);
+    return result;
+  }
+
+  @Post('social/redeem-ticket')
+  async redeemLoginTicket(
+    @Body() dto: RedeemSocialLoginTicketDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.socialAuthService.redeemLoginTicket(dto.ticket) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    } & Record<string, unknown>;
+    this.sessionCookieService.setAuthCookies(response, result);
+    return result;
   }
 
   /**
@@ -343,13 +443,16 @@ export class SocialAuthController {
   async transferBinding(
     @CurrentUser() user: RequestUser,
     @Body() dto: { provider?: string; username: string; password: string },
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.socialAuthService.transferSocialBinding(
+    const result = await this.socialAuthService.transferSocialBinding(
       user.id,
       dto.provider,
       dto.username,
       dto.password,
     );
+    this.sessionCookieService.setAuthCookies(response, result);
+    return result;
   }
 
   /**

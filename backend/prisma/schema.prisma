@@ -30,6 +30,7 @@ enum VerificationCodeType {
 model User {
   id              String                   @id @default(cuid())
   username        String?                  @unique
+  displayName     String?
   email           String?                  @unique
   phone           String?                  @unique
   passwordHash    String?
@@ -39,6 +40,7 @@ model User {
   avatar          String?
   registrationSource String?
   registerClientId   String?
+  lastLoginAt     DateTime?
   createdAt       DateTime                 @default(now())
   updatedAt       DateTime                 @updatedAt
   auditLogs       AuditLog[]
@@ -74,15 +76,24 @@ model SocialAccount {
   id               String   @id @default(cuid())
   userId           String
   provider         String
+  providerAppId    String?
   providerUserId   String
+  openid           String?
+  unionid          String?
   accessToken      String
   refreshToken     String?
+  nickname         String?
+  avatar           String?
   profile          String
+  rawProfile       String?
+  lastLoginAt      DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerUserId])
+  @@index([provider, unionid])
+  @@index([provider, providerAppId, openid])
 }
 
 model VerificationCode {
@@ -140,7 +151,7 @@ model OauthToken {
 model SocialProvider {
   id           String   @id @default(cuid())
   name         String   @unique
-  type         String   @default("oauth")  // 'oauth' | 'aggregated'
+  type         String   @default("oauth")  // 'oauth' | 'aggregated' | 'wechat-mini'
   enabled      Boolean  @default(false)
   clientId     String   @default("")
   clientSecret String   @default("")
@@ -150,6 +161,13 @@ model SocialProvider {
   authUrl      String?
   tokenUrl     String?
   userInfoUrl  String?
+  fieldMapping String?
+  signatureSecret String @default("")
+  ipWhitelist  String?
+  identityStrategy String @default("unionid_or_app_openid")
+  profileSyncMode String @default("fill_missing")
+  miniProgramUseDynamicCode Boolean @default(true)
+  miniProgramSubmitFields String? @default("[\"jsCode\"]")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }

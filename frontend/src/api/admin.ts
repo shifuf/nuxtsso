@@ -8,9 +8,12 @@ import type {
   BackupConfig,
   BackupInfo,
   EmailConfig,
+  PaginatedResult,
   SiteConfig,
   SocialAccountItem,
   SocialProviderConfig,
+  SocialIdentityStrategy,
+  SocialProfileSyncMode,
   UserProfile,
 } from '../types/api';
 
@@ -40,6 +43,23 @@ export interface AuditLogQuery {
   action?: string;
   category?: AuditCategory;
   limit?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ListUsersQuery {
+  q?: string;
+  role?: UserProfile['role'];
+  status?: UserProfile['status'];
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ListApplicationsQuery {
+  q?: string;
+  status?: ApplicationItem['status'];
+  page?: number;
+  pageSize?: number;
 }
 
 export interface SocialProviderPayload {
@@ -53,13 +73,23 @@ export interface SocialProviderPayload {
   authUrl?: string;
   tokenUrl?: string;
   userInfoUrl?: string;
+  fieldMapping?: string;
+  signatureSecret?: string;
+  ipWhitelist?: string;
+  identityStrategy?: SocialIdentityStrategy;
+  profileSyncMode?: SocialProfileSyncMode;
+  miniProgramUseDynamicCode?: boolean;
+  miniProgramSubmitFields?: string[];
 }
 
 export const adminApi = {
   // Users
-  async listUsers(query?: string) {
-    const { data } = await http.get('/api/admin/users', { params: query ? { q: query } : undefined });
-    return data as UserProfile[];
+  async listUsers(query?: string | ListUsersQuery) {
+    const params = typeof query === 'string'
+      ? (query ? { q: query } : undefined)
+      : query;
+    const { data } = await http.get('/api/admin/users', { params });
+    return data as PaginatedResult<UserProfile>;
   },
   async searchUsers(query?: string) {
     const { data } = await http.get('/api/admin/users/search', {
@@ -93,9 +123,9 @@ export const adminApi = {
   },
 
   // Applications
-  async listApplications() {
-    const { data } = await http.get('/api/admin/applications');
-    return data as ApplicationItem[];
+  async listApplications(query?: ListApplicationsQuery) {
+    const { data } = await http.get('/api/admin/applications', { params: query });
+    return data as PaginatedResult<ApplicationItem>;
   },
   async getApplicationById(id: string) {
     const { data } = await http.get(`/api/admin/applications/${id}`);
@@ -231,7 +261,7 @@ export const adminApi = {
   // Audit
   async listAuditLogs(query?: AuditLogQuery) {
     const { data } = await http.get('/api/admin/audit-logs', { params: query });
-    return data as AuditLogItem[];
+    return data as PaginatedResult<AuditLogItem>;
   },
   async getAuditSummary(days = 7) {
     const { data } = await http.get('/api/admin/audit-logs/summary', { params: { days } });
@@ -259,7 +289,16 @@ export const adminApi = {
   },
   async generateSocialBindUrl(userId: string, provider: string) {
     const { data } = await http.post(`/api/admin/users/${userId}/social-bind-url`, { provider });
-    return data as { authorizeUrl: string; qrCodeUrl?: string | null; state: string };
+    return data as {
+      authorizeUrl: string;
+      qrCodeUrl?: string | null;
+      state: string;
+      miniProgramPath?: string;
+      scene?: string;
+      qrMode?: 'dynamic' | 'fixed' | 'fallback' | 'platform';
+      qrContent?: string;
+      expiresIn?: number;
+    };
   },
   async getSocialBindStatus(userId: string, state: string) {
     const { data } = await http.get(`/api/admin/users/${userId}/social-bind-status`, {

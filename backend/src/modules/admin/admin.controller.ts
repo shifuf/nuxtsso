@@ -29,9 +29,10 @@ import {
 import {
   ApplicationService,
   CreateApplicationDto,
+  ListApplicationsDto,
   UpdateApplicationDto,
 } from '../application/application.service';
-import { CreateUserDto, UpdateUserDto, UserService } from '../user/user.service';
+import { CreateUserDto, ListUsersDto, UpdateUserDto, UserService } from '../user/user.service';
 import {
   CreateSocialProviderDto,
   SocialProviderService,
@@ -58,7 +59,7 @@ class UpdateStatusDto {
 
 class ResetPasswordDto {
   @IsString()
-  @MinLength(3)
+  @MinLength(8, { message: '新密码长度不能少于 8 位' })
   newPassword!: string;
 }
 
@@ -101,7 +102,7 @@ export class AdminController {
   }
 
   @Get('users')
-  listUsers(@Query('q') query?: string) {
+  listUsers(@Query() query: ListUsersDto) {
     return this.userService.listUsers(query);
   }
 
@@ -214,8 +215,8 @@ export class AdminController {
   }
 
   @Get('applications')
-  listApplications() {
-    return this.applicationService.listApplications();
+  listApplications(@Query() query: ListApplicationsDto) {
+    return this.applicationService.listApplications(query);
   }
 
   @Post('applications')

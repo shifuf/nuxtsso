@@ -289,6 +289,7 @@ export class Oauth2Service {
       clientId: authorizationCode.clientId,
       includeIdToken: scopes.includes('openid'),
       nonce: authorizationCode.nonce,
+      sessionType: 'oauth_access',
     });
   }
 
@@ -301,6 +302,10 @@ export class Oauth2Service {
 
     if (!token) {
       throw new UnauthorizedException('刷新令牌无效');
+    }
+
+    if (token.tokenType !== 'oauth_access') {
+      throw new UnauthorizedException('刷新令牌用途无效');
     }
 
     if (token.clientId && token.clientId !== dto.client_id) {
@@ -331,6 +336,7 @@ export class Oauth2Service {
       scopes: parseStringArray(token.scopes),
       clientId: token.clientId,
       includeIdToken: false,
+      sessionType: 'oauth_access',
     });
   }
 
@@ -360,13 +366,38 @@ export class Oauth2Service {
     return this.tokenService.getJwks();
   }
 
-  getUserInfo(user: RequestUser) {
-    return {
+  async getUserInfo(user: RequestUser) {
+    const entity = await this.prismaService.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        email: true,
+        emailVerified: true,
+        avatar: true,
+      },
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException('用户不存在');
+    }
+
+    const info: Record<string, unknown> = {
       sub: user.id,
-      name: user.email.split('@')[0],
-      email: user.email,
-      email_verified: true,
-      picture: null,
     };
+
+    if (user.scopes.includes('profile')) {
+      info.name = entity.displayName ?? entity.username ?? entity.email?.split('@')[0] ?? entity.id;
+      info.preferred_username = entity.username;
+      info.picture = entity.avatar;
+    }
+
+    if (user.scopes.includes('email')) {
+      info.email = entity.email;
+      info.email_verified = entity.emailVerified;
+    }
+
+    return info;
   }
 }

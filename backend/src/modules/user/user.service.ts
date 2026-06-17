@@ -4,18 +4,38 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole, UserStatus } from '@prisma/client';
+import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import {
   IsBoolean,
   IsEmail,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../database/prisma.service';
+
+const SOCIAL_REGISTRATION_SOURCES = new Set([
+  'wechat',
+  'wechat-mini',
+  'qq',
+  'github',
+  'google',
+  'alipay',
+  'weibo',
+  'baidu',
+  'huawei',
+  'xiaomi',
+  'douyin',
+  'bilibili',
+  'dingtalk',
+]);
 
 export class CreateUserDto {
   @IsEmail()
@@ -27,7 +47,7 @@ export class CreateUserDto {
   username?: string;
 
   @IsString()
-  @MinLength(3)
+  @MinLength(8)
   password!: string;
 }
 
@@ -55,6 +75,31 @@ export class BindPhoneDto {
     message: 'Phone number is invalid',
   })
   phone!: string;
+}
+
+export class ListUsersDto {
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsIn(['admin', 'user'])
+  role?: 'admin' | 'user';
+
+  @IsOptional()
+  @IsIn(['active', 'disabled'])
+  status?: 'active' | 'disabled';
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 20;
 }
 
 @Injectable()
@@ -93,6 +138,16 @@ export class UserService {
     return phone.trim().replace(/[\s-]/g, '');
   }
 
+  private assertPasswordPolicy(password: string) {
+    if (password.length < 8) {
+      throw new BadRequestException('密码长度不能少于 8 位');
+    }
+
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      throw new BadRequestException('密码必须同时包含字母和数字');
+    }
+  }
+
   private async assertPhoneAvailable(phone: string, excludeUserId?: string) {
     const existingUser = await this.prismaService.user.findFirst({
       where: {
@@ -109,6 +164,7 @@ export class UserService {
   toApiUser(user: {
     id: string;
     username: string | null;
+    displayName?: string | null;
     email: string | null;
     phone: string | null;
     emailVerified: boolean;
@@ -117,13 +173,16 @@ export class UserService {
     avatar: string | null;
     registrationSource: string | null;
     registerClientId: string | null;
+    registerClientName?: string | null;
     passwordHash?: string | null;
+    lastLoginAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
     return {
       id: user.id,
       username: user.username,
+      displayName: user.displayName ?? null,
       email: user.email,
       phone: user.phone,
       emailVerified: user.emailVerified,
@@ -132,7 +191,9 @@ export class UserService {
       avatar: user.avatar,
       registrationSource: user.registrationSource,
       registerClientId: user.registerClientId,
+      registerClientName: user.registerClientName ?? null,
       hasPassword: !!user.passwordHash,
+      lastLoginAt: user.lastLoginAt ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
@@ -143,26 +204,80 @@ export class UserService {
     return this.toApiUser(user);
   }
 
-  async listUsers(query?: string) {
-    const users = await this.prismaService.user.findMany({
-      where: query
-        ? {
-            OR: [
-              { email: { contains: query } },
-              { username: { contains: query } },
-              { id: { contains: query } },
-            ],
-          }
-        : undefined,
-      include: {
-        socialAccounts: {
-          select: { provider: true, providerUserId: true },
+  private normalizePagination(page = 1, pageSize = 20) {
+    const normalizedPage = Math.max(1, page);
+    const normalizedPageSize = Math.min(100, Math.max(1, pageSize));
+
+    return {
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      skip: (normalizedPage - 1) * normalizedPageSize,
+    };
+  }
+
+  private async buildListUsersWhere(dto: ListUsersDto) {
+    const normalizedQuery = dto.q?.trim();
+    const matchingClientIds = normalizedQuery
+      ? await this.findMatchingRegisterClientIds(normalizedQuery)
+      : [];
+    const conditions: Prisma.UserWhereInput[] = [];
+
+    if (normalizedQuery) {
+      conditions.push({
+        OR: [
+          { email: { contains: normalizedQuery } },
+          { username: { contains: normalizedQuery } },
+          { id: { contains: normalizedQuery } },
+          { registrationSource: { contains: normalizedQuery } },
+          { registerClientId: { contains: normalizedQuery } },
+          ...(matchingClientIds.length
+            ? [{ registerClientId: { in: matchingClientIds } }]
+            : []),
+        ],
+      });
+    }
+
+    if (dto.role) {
+      conditions.push({
+        role: dto.role === 'admin' ? UserRole.ADMIN : UserRole.USER,
+      });
+    }
+
+    if (dto.status) {
+      conditions.push({
+        status:
+          dto.status === 'active'
+            ? UserStatus.ACTIVE
+            : UserStatus.DISABLED,
+      });
+    }
+
+    return conditions.length ? { AND: conditions } : undefined;
+  }
+
+  async listUsers(dto: ListUsersDto = {}) {
+    const { page, pageSize, skip } = this.normalizePagination(
+      dto.page,
+      dto.pageSize,
+    );
+    const where = await this.buildListUsersWhere(dto);
+
+    const [users, total] = await this.prismaService.$transaction([
+      this.prismaService.user.findMany({
+        where,
+        include: {
+          socialAccounts: {
+            select: { provider: true, providerUserId: true },
+          },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: pageSize,
+      }),
+      this.prismaService.user.count({ where }),
+    ]);
 
     const clientIds = [...new Set(users.map(u => u.registerClientId).filter(Boolean))] as string[];
     const appMap = new Map<string, string>();
@@ -175,8 +290,7 @@ export class UserService {
     }
 
     // Batch lookup: social-registered users without bindings → find where their SocialAccount went
-    const SOCIAL_SOURCES = ['wechat', 'qq', 'github', 'google'];
-    const orphaned = users.filter(u => !u.socialAccounts.length && u.registrationSource && SOCIAL_SOURCES.includes(u.registrationSource));
+    const orphaned = users.filter(u => !u.socialAccounts.length && this.isSocialRegistrationUser(u));
     const boundMap = new Map<string, { id: string; username: string | null; email: string | null }>();
 
     if (orphaned.length) {
@@ -208,19 +322,41 @@ export class UserService {
       // unrelated users as bound when they merely use the same provider.
     }
 
-    return users.map((user) => ({
-      ...this.toApiUser(user),
-      registerClientName: user.registerClientId ? (appMap.get(user.registerClientId) ?? null) : null,
-      socialAccounts: user.socialAccounts,
-      boundToUser: boundMap.get(user.id) ?? null,
-    }));
+    return {
+      items: users.map((user) => ({
+        ...this.toApiUser({
+          ...user,
+          registerClientName: user.registerClientId
+            ? (appMap.get(user.registerClientId) ?? null)
+            : null,
+        }),
+        socialAccounts: user.socialAccounts,
+        boundToUser: boundMap.get(user.id) ?? null,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  private async findMatchingRegisterClientIds(query: string) {
+    const applications = await this.prismaService.application.findMany({
+      where: {
+        OR: [
+          { clientId: { contains: query } },
+          { name: { contains: query } },
+        ],
+      },
+      select: { clientId: true },
+    });
+
+    return applications.map((application) => application.clientId);
   }
 
   async searchBindableUsers(query?: string) {
     const normalizedQuery = query?.trim();
     const users = await this.prismaService.user.findMany({
       where: {
-        role: UserRole.USER,
         ...(normalizedQuery
           ? {
               OR: [
@@ -238,13 +374,22 @@ export class UserService {
     });
 
     return users
-      .filter((user) => !this.isSocialPlaceholderUser(user))
+      .filter((user) => !this.isSocialRegistrationUser(user))
       .map((user) => this.toApiUser(user));
   }
 
   async getUserById(id: string) {
     const user = await this.requireUserEntity(id);
-    return this.toApiUser(user);
+    const registerClientName = user.registerClientId
+      ? (
+          await this.prismaService.application.findUnique({
+            where: { clientId: user.registerClientId },
+            select: { name: true },
+          })
+        )?.name ?? null
+      : null;
+
+    return this.toApiUser({ ...user, registerClientName });
   }
 
   async updateUser(id: string, dto: UpdateUserDto) {
@@ -284,6 +429,8 @@ export class UserService {
   }
 
   async createUser(dto: CreateUserDto) {
+    this.assertPasswordPolicy(dto.password);
+
     const existingUser = await this.prismaService.user.findUnique({
       where: { email: dto.email },
     });
@@ -310,6 +457,8 @@ export class UserService {
   }
 
   async resetPassword(id: string, newPassword: string) {
+    this.assertPasswordPolicy(newPassword);
+
     await this.requireUserEntity(id);
 
     const user = await this.prismaService.user.update({
@@ -431,7 +580,18 @@ export class UserService {
     return Boolean(
       user.email?.endsWith('@social.local') &&
         source &&
-        ['wechat', 'qq', 'github', 'google'].includes(source),
+        SOCIAL_REGISTRATION_SOURCES.has(source),
+    );
+  }
+
+  private isSocialRegistrationUser(user: {
+    email: string | null;
+    registrationSource: string | null;
+  }) {
+    const source = user.registrationSource?.toLowerCase();
+    return Boolean(
+      user.email?.endsWith('@social.local') ||
+        (source && SOCIAL_REGISTRATION_SOURCES.has(source)),
     );
   }
 
@@ -447,10 +607,13 @@ export class UserService {
   }
 
   async bindSocialAccount(userId: string, provider: string, providerUserId: string, profile?: string) {
-    await this.requireUserEntity(userId);
+    const targetUser = await this.requireUserEntity(userId);
+    if (this.isSocialRegistrationUser(targetUser)) {
+      throw new BadRequestException('第三方注册账号无需再绑定第三方账号');
+    }
 
     // Resolve the real openid: if no SocialAccount exists with this providerUserId,
-    // try to find the social-registered user and extract openid from their email pattern
+    // try to find the exact social-registered user and extract openid from their email pattern
     let realProviderUserId = providerUserId;
     const existingByInput = await this.prismaService.socialAccount.findUnique({
       where: {
@@ -464,20 +627,12 @@ export class UserService {
     if (!existingByInput) {
       const prefix = `${provider}_`;
       const suffix = '@social.local';
-      const socialUser =
-        (await this.prismaService.user.findFirst({
-          where: {
-            registrationSource: provider,
-            email: `${prefix}${providerUserId}${suffix}`,
-          },
-        })) ??
-        (await this.prismaService.user.findFirst({
-          where: {
-            registrationSource: provider,
-            email: { startsWith: prefix, endsWith: suffix },
-          },
-          orderBy: { createdAt: 'desc' },
-        }));
+      const socialUser = await this.prismaService.user.findFirst({
+        where: {
+          registrationSource: provider,
+          email: `${prefix}${providerUserId}${suffix}`,
+        },
+      });
       if (socialUser?.email) {
         const extracted = socialUser.email.slice(prefix.length, -suffix.length);
         if (extracted) realProviderUserId = extracted;
@@ -493,6 +648,20 @@ export class UserService {
         },
       },
     });
+
+    const targetProviderBinding = await this.prismaService.socialAccount.findFirst({
+      where: {
+        userId,
+        provider,
+      },
+    });
+
+    if (
+      targetProviderBinding &&
+      targetProviderBinding.providerUserId !== realProviderUserId
+    ) {
+      throw new BadRequestException(`当前用户已绑定了 ${provider}，请先解绑`);
+    }
 
     if (existing && existing.userId !== userId) {
       const owner = await this.prismaService.user.findUnique({
@@ -520,8 +689,15 @@ export class UserService {
         userId,
         provider,
         providerUserId: realProviderUserId,
+        providerAppId: null,
+        openid: null,
+        unionid: null,
         accessToken: '',
+        nickname: null,
+        avatar: null,
         profile: profile || '{}',
+        rawProfile: profile || '{}',
+        lastLoginAt: null,
       },
     });
 
@@ -568,6 +744,9 @@ export class UserService {
       id: a.id,
       provider: a.provider,
       providerUserId: a.providerUserId,
+      providerAppId: a.providerAppId,
+      openid: a.openid,
+      unionid: a.unionid,
       userId: a.userId,
       boundUsername: a.user.username,
       boundEmail: a.user.email,
@@ -610,6 +789,9 @@ export class UserService {
         id: `synthetic:${user.id}`,
         provider,
         providerUserId,
+        providerAppId: null,
+        openid: null,
+        unionid: null,
         userId: user.id,
         boundUsername: user.username,
         boundEmail: user.email,
@@ -621,7 +803,10 @@ export class UserService {
   }
 
   async assignSocialAccount(userId: string, socialAccountId: string) {
-    await this.requireUserEntity(userId);
+    const targetUser = await this.requireUserEntity(userId);
+    if (this.isSocialRegistrationUser(targetUser)) {
+      throw new BadRequestException('第三方注册账号无需再绑定第三方账号');
+    }
 
     const account = await this.prismaService.socialAccount.findUnique({
       where: { id: socialAccountId },
@@ -656,6 +841,10 @@ export class UserService {
 
     if (targetUser.id === sourceUserId) {
       throw new BadRequestException('不能转移到自身');
+    }
+
+    if (this.isSocialRegistrationUser(targetUser)) {
+      throw new BadRequestException('目标用户不能是第三方注册账号');
     }
 
     const sourceBindings = await this.prismaService.socialAccount.findMany({
@@ -705,8 +894,15 @@ export class UserService {
             userId: targetUser.id,
             provider,
             providerUserId,
+            providerAppId: null,
+            openid: null,
+            unionid: null,
             accessToken: '',
+            nickname: null,
+            avatar: null,
             profile: '{}',
+            rawProfile: '{}',
+            lastLoginAt: null,
           },
         });
       }

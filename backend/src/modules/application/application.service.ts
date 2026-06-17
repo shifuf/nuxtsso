@@ -3,25 +3,32 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ApplicationStatus } from '@prisma/client';
+import { ApplicationStatus, Prisma } from '@prisma/client';
 import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUrl,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
+import { SecretService } from '../../common/security/secret.service';
 import { PrismaService } from '../../database/prisma.service';
 import {
   parseStringArray,
   toJsonString,
   uniqueStringArray,
 } from '../../common/utils/json.util';
+
+const DEFAULT_APPLICATION_SCOPES = ['openid', 'profile', 'email'];
 
 export class CreateApplicationDto {
   @IsString()
@@ -45,10 +52,11 @@ export class CreateApplicationDto {
   )
   redirectUris!: string[];
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
-  scopes!: string[];
+  scopes?: string[];
 
   @IsOptional()
   @IsBoolean()
@@ -95,10 +103,32 @@ export class UpdateApplicationDto {
   enabledSocialProviders?: string[];
 }
 
+export class ListApplicationsDto {
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'disabled'])
+  status?: 'active' | 'disabled';
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number = 20;
+}
+
 @Injectable()
 export class ApplicationService {
   constructor(
     private readonly prismaService: PrismaService,
+    private readonly secretService: SecretService,
   ) {}
 
   private toApiApplication(application: {
@@ -147,41 +177,81 @@ export class ApplicationService {
     return `secret_${randomBytes(18).toString('hex')}`;
   }
 
-  private getCipherKey(): Buffer {
-    const passphrase = process.env.SECRET_ENCRYPTION_KEY ?? 'nexus-sso-default-secret-key-2024';
-    return scryptSync(passphrase, 'nexus-sso-salt', 32);
+  private resolveScopes(scopes?: string[]) {
+    return uniqueStringArray(
+      (scopes?.length ? scopes : DEFAULT_APPLICATION_SCOPES)
+        .map((scope) => scope.trim())
+        .filter(Boolean),
+    );
   }
 
-  private encryptSecret(plain: string): string {
-    const key = this.getCipherKey();
-    const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+  private normalizePagination(page = 1, pageSize = 20) {
+    const normalizedPage = Math.max(1, page);
+    const normalizedPageSize = Math.min(100, Math.max(1, pageSize));
+
+    return {
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      skip: (normalizedPage - 1) * normalizedPageSize,
+    };
   }
 
-  private decryptSecret(encrypted: string): string {
-    const [ivHex, tagHex, dataHex] = encrypted.split(':');
-    const key = this.getCipherKey();
-    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
-    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-    return decipher.update(dataHex, 'hex', 'utf8') + decipher.final('utf8');
+  private buildListApplicationsWhere(dto: ListApplicationsDto) {
+    const conditions: Prisma.ApplicationWhereInput[] = [];
+    const query = dto.q?.trim();
+
+    if (query) {
+      conditions.push({
+        OR: [
+          { name: { contains: query } },
+          { description: { contains: query } },
+          { clientId: { contains: query } },
+        ],
+      });
+    }
+
+    if (dto.status) {
+      conditions.push({
+        status:
+          dto.status === 'active'
+            ? ApplicationStatus.ACTIVE
+            : ApplicationStatus.DISABLED,
+      });
+    }
+
+    return conditions.length ? { AND: conditions } : undefined;
   }
 
-  async listApplications() {
-    const applications = await this.prismaService.application.findMany({
-      include: {
-        owner: {
-          select: { id: true, username: true, email: true },
+  async listApplications(dto: ListApplicationsDto = {}) {
+    const { page, pageSize, skip } = this.normalizePagination(
+      dto.page,
+      dto.pageSize,
+    );
+    const where = this.buildListApplicationsWhere(dto);
+
+    const [applications, total] = await this.prismaService.$transaction([
+      this.prismaService.application.findMany({
+        where,
+        include: {
+          owner: {
+            select: { id: true, username: true, email: true },
+          },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: pageSize,
+      }),
+      this.prismaService.application.count({ where }),
+    ]);
 
-    return applications.map((application) => this.toApiApplication(application));
+    return {
+      items: applications.map((application) => this.toApiApplication(application)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async listUserApplications(userId: string) {
@@ -231,9 +301,9 @@ export class ApplicationService {
         description: dto.description,
         clientId: this.buildClientId(),
         clientSecretHash: await bcrypt.hash(clientSecret, 10),
-        encryptedClientSecret: this.encryptSecret(clientSecret),
+        encryptedClientSecret: this.secretService.encrypt(clientSecret),
         redirectUris: toJsonString(uniqueStringArray(dto.redirectUris)),
-        scopes: toJsonString(uniqueStringArray(dto.scopes)),
+        scopes: toJsonString(this.resolveScopes(dto.scopes)),
         allowRegistration: dto.allowRegistration ?? true,
         ownerId: ownerId ?? null,
         status: ownerId ? ApplicationStatus.DISABLED : ApplicationStatus.ACTIVE,
@@ -314,7 +384,7 @@ export class ApplicationService {
       where: { id },
       data: {
         clientSecretHash: await bcrypt.hash(clientSecret, 10),
-        encryptedClientSecret: this.encryptSecret(clientSecret),
+        encryptedClientSecret: this.secretService.encrypt(clientSecret),
       },
     });
 
@@ -348,7 +418,7 @@ export class ApplicationService {
 
     return {
       clientId: application.clientId,
-      clientSecret: this.decryptSecret(application.encryptedClientSecret),
+      clientSecret: this.secretService.decryptMaybe(application.encryptedClientSecret),
     };
   }
 

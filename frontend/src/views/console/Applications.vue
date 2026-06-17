@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-import { NButton, NInput, NSelect, NModal, NSwitch } from 'naive-ui'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { NButton, NInput, NSelect, NModal, NPagination, NSwitch } from 'naive-ui'
 import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { ApplicationItem, ApplicationCreateResponse, SocialProviderConfig } from '../../types/api'
@@ -8,12 +8,18 @@ import MetricCard from '../../components/MetricCard.vue'
 import PageHeader from '../../components/PageHeader.vue'
 import StatusTag from '../../components/StatusTag.vue'
 import Icon from '../../components/Icon.vue'
+import { foldWechatProviders, normalizeWechatProviderNames } from '../../utils/socialProviders'
+import { APPLICATION_SCOPE_OPTIONS, defaultApplicationScopes, normalizeApplicationScopes, scopeLabel } from '../../utils/oauthScopes'
 
 const loading = ref(false)
 const saving = ref(false)
 const apps = ref<ApplicationItem[]>([])
+const appTotal = ref(0)
 const searchQuery = ref('')
 const statusFilter = ref<'全部' | 'active' | 'disabled'>('全部')
+const appPage = ref(1)
+const appPageSize = ref(20)
+const appPageSizeOptions = [10, 20, 50, 100]
 
 const showCreateDialog = ref(false)
 const showSecretDialog = ref(false)
@@ -21,11 +27,20 @@ const editingApp = ref<ApplicationItem | null>(null)
 const secretResult = ref<ApplicationCreateResponse | null>(null)
 const enabledProviders = ref<SocialProviderConfig[]>([])
 
-const formData = reactive({
+interface ApplicationFormData {
+  name: string
+  description: string
+  redirectUris: string
+  scopes: string[]
+  allowRegistration: boolean
+  enabledSocialProviders: string[]
+}
+
+const formData = reactive<ApplicationFormData>({
   name: '',
   description: '',
   redirectUris: '',
-  scopes: '',
+  scopes: defaultApplicationScopes(),
   allowRegistration: false,
   enabledSocialProviders: [] as string[],
 })
@@ -41,7 +56,7 @@ const providerLabel = (name: string) => {
 }
 
 const providerOptions = computed(() =>
-  enabledProviders.value
+  foldWechatProviders(enabledProviders.value)
     .filter(p => p.enabled)
     .map(p => ({ label: providerLabel(p.name), value: p.name }))
 )
@@ -52,20 +67,10 @@ const statusOptions = [
   { label: '禁用', value: 'disabled' },
 ]
 
-const filteredApps = computed(() => {
-  let result = apps.value
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    result = result.filter(a =>
-      a.name.toLowerCase().includes(q) ||
-      a.clientId.toLowerCase().includes(q)
-    )
-  }
-  if (statusFilter.value !== '全部') {
-    result = result.filter(a => a.status === statusFilter.value)
-  }
-  return result
-})
+const filteredApps = computed(() => apps.value)
+const showAppPagination = computed(() => appTotal.value > appPageSize.value)
+const visibleRangeStart = computed(() => appTotal.value === 0 ? 0 : (appPage.value - 1) * appPageSize.value + 1)
+const visibleRangeEnd = computed(() => Math.min(appPage.value * appPageSize.value, appTotal.value))
 
 const onlineCount = computed(() => apps.value.filter(a => a.status === 'active').length)
 const registrationCount = computed(() => apps.value.filter(a => a.allowRegistration).length)
@@ -75,6 +80,19 @@ onMounted(async () => {
   await Promise.all([loadApps(), loadProviders()])
 })
 
+watch(appPage, () => {
+  void loadApps()
+})
+
+watch(appPageSize, () => {
+  if (appPage.value !== 1) {
+    appPage.value = 1
+    return
+  }
+
+  void loadApps()
+})
+
 async function loadProviders() {
   try { enabledProviders.value = await adminApi.listSocialProviders() } catch { /* silent */ }
 }
@@ -82,9 +100,25 @@ async function loadProviders() {
 async function loadApps() {
   loading.value = true
   try {
-    apps.value = await adminApi.listApplications()
+    const result = await adminApi.listApplications({
+      q: searchQuery.value.trim() || undefined,
+      status: statusFilter.value === '全部' ? undefined : statusFilter.value,
+      page: appPage.value,
+      pageSize: appPageSize.value,
+    })
+    apps.value = result.items
+    appTotal.value = result.total
   } catch { /* silent */ }
   finally { loading.value = false }
+}
+
+function applyFilters() {
+  if (appPage.value !== 1) {
+    appPage.value = 1
+    return
+  }
+
+  void loadApps()
 }
 
 function openCreate() {
@@ -92,7 +126,7 @@ function openCreate() {
   formData.name = ''
   formData.description = ''
   formData.redirectUris = ''
-  formData.scopes = ''
+  formData.scopes = defaultApplicationScopes()
   formData.allowRegistration = false
   formData.enabledSocialProviders = []
   showCreateDialog.value = true
@@ -103,9 +137,9 @@ function openEdit(app: ApplicationItem) {
   formData.name = app.name
   formData.description = app.description || ''
   formData.redirectUris = app.redirectUris.join('\n')
-  formData.scopes = app.scopes.join('\n')
+  formData.scopes = normalizeApplicationScopes(app.scopes)
   formData.allowRegistration = app.allowRegistration
-  formData.enabledSocialProviders = [...app.enabledSocialProviders]
+  formData.enabledSocialProviders = normalizeWechatProviderNames(app.enabledSocialProviders)
   showCreateDialog.value = true
 }
 
@@ -117,9 +151,9 @@ async function saveApp() {
     name: formData.name,
     description: formData.description || undefined,
     redirectUris: formData.redirectUris.split('\n').map(s => s.trim()).filter(Boolean),
-    scopes: formData.scopes.split('\n').map(s => s.trim()).filter(Boolean),
+    scopes: normalizeApplicationScopes(formData.scopes),
     allowRegistration: formData.allowRegistration,
-    enabledSocialProviders: formData.enabledSocialProviders,
+    enabledSocialProviders: normalizeWechatProviderNames(formData.enabledSocialProviders),
   }
 
   saving.value = true
@@ -221,8 +255,8 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
     </PageHeader>
 
     <div class="metric-grid">
-      <MetricCard label="应用总数" :value="String(apps.length)" caption="支持 OAuth2 / OIDC 的业务系统" :trend="`+${apps.length}`" tone="info" />
-      <MetricCard label="在线应用" :value="String(onlineCount)" caption="当前状态为启用的应用" :trend="apps.length ? Math.round(onlineCount / apps.length * 100) + '%' : '0%'" tone="success" />
+      <MetricCard label="应用总数" :value="String(appTotal)" caption="当前筛选条件下的应用总数" :trend="`+${appTotal}`" tone="info" />
+      <MetricCard label="本页在线" :value="String(onlineCount)" caption="当前页状态为启用的应用" :trend="apps.length ? Math.round(onlineCount / apps.length * 100) + '%' : '0%'" tone="success" />
       <MetricCard label="开放注册" :value="String(registrationCount)" caption="允许从授权流程中注册新用户" trend="场景受控" tone="warning" />
       <MetricCard label="共享 Scope" :value="String(allScopes.length)" caption="跨应用使用的 Scope 种类" trend="需统一治理" tone="neutral" />
     </div>
@@ -230,9 +264,9 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
     <!-- Search & Filter bar -->
     <section class="panel-card p-6" style="border-radius: 2rem;">
       <div class="grid gap-4 lg:grid-cols-[1.2fr,1fr,auto]">
-        <NInput v-model:value="searchQuery" size="large" placeholder="搜索应用名称 / Client ID" @keyup.enter="loadApps" />
+        <NInput v-model:value="searchQuery" size="large" placeholder="搜索应用名称 / Client ID" @keyup.enter="applyFilters" />
         <NSelect v-model:value="statusFilter" size="large" :options="statusOptions" />
-        <NButton class="!h-11 !px-5 lumina-outline-btn" @click="loadApps">筛选</NButton>
+        <NButton class="!h-11 !px-5 lumina-outline-btn" @click="applyFilters">筛选</NButton>
       </div>
     </section>
 
@@ -282,7 +316,7 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
 
         <!-- Scope chips -->
         <div v-if="item.scopes.length > 0" class="app-scopes">
-          <span v-for="scope in item.scopes.slice(0, 4)" :key="scope" class="scope-chip">{{ scope }}</span>
+          <span v-for="scope in item.scopes.slice(0, 4)" :key="scope" class="scope-chip" :title="scope">{{ scopeLabel(scope) }}</span>
           <span v-if="item.scopes.length > 4" class="scope-chip scope-chip-more">+{{ item.scopes.length - 4 }}</span>
         </div>
 
@@ -307,6 +341,19 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
         <p class="mt-1 text-xs text-[var(--text-muted)]">点击「新建应用」接入你的第一个 OAuth 业务系统</p>
         <NButton type="primary" class="lumina-primary-btn mt-4" @click="openCreate">新建应用</NButton>
       </div>
+    </div>
+
+    <div class="flex flex-col gap-3 text-xs text-[var(--text-muted)] sm:flex-row sm:items-center sm:justify-between">
+      <p>显示 {{ visibleRangeStart }}-{{ visibleRangeEnd }} / {{ appTotal }} 个应用</p>
+      <NPagination
+        v-if="showAppPagination"
+        v-model:page="appPage"
+        v-model:page-size="appPageSize"
+        :item-count="appTotal"
+        :page-sizes="appPageSizeOptions"
+        size="small"
+        show-size-picker
+      />
     </div>
 
     <!-- Create/Edit Dialog -->
@@ -345,11 +392,13 @@ function appIconName(index: number) { return iconNames[index % iconNames.length]
 
         <label class="app-form-field">
           <span>Scope 权限</span>
-          <NInput
+          <NSelect
             v-model:value="formData.scopes"
-            type="textarea"
-            placeholder="每行一个，默认 openid / profile / email"
-            :autosize="{ minRows: 3, maxRows: 5 }"
+            :options="APPLICATION_SCOPE_OPTIONS"
+            placeholder="选择应用可申请的用户信息"
+            multiple
+            size="large"
+            :max-tag-count="3"
           />
         </label>
 

@@ -24,6 +24,33 @@ OIDC_ISSUER=https://sso.example.com
 OAUTH_CALLBACK_BASE_URL=https://sso.example.com
 ```
 
+生成生产环境必需的密钥，并写入 `.env`：
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out oidc_private.pem
+openssl rsa -pubout -in oidc_private.pem -out oidc_public.pem
+openssl rand -hex 32
+```
+
+`SECRET_ENCRYPTION_KEY` 填入 `openssl rand -hex 32` 的输出。`OIDC_PRIVATE_KEY` 和 `OIDC_PUBLIC_KEY` 需要把 PEM 文件内容转为单行，并用 `\n` 表示换行。例如在 Linux/macOS 上：
+
+```bash
+OIDC_PRIVATE_KEY=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' oidc_private.pem)
+OIDC_PUBLIC_KEY=$(awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' oidc_public.pem)
+printf 'OIDC_PRIVATE_KEY=%s\nOIDC_PUBLIC_KEY=%s\n' "$OIDC_PRIVATE_KEY" "$OIDC_PUBLIC_KEY" >> .env
+```
+
+在 PowerShell 上：
+
+```powershell
+$privateKey = (Get-Content .\oidc_private.pem) -join '\n'
+$publicKey = (Get-Content .\oidc_public.pem) -join '\n'
+Add-Content .env "OIDC_PRIVATE_KEY=$privateKey"
+Add-Content .env "OIDC_PUBLIC_KEY=$publicKey"
+```
+
+生产环境不要保留 `.env.production.example` 里的 `replace-with...` 示例值；Compose 会在缺少这些密钥时拒绝启动。
+
 如果没有反向代理和 HTTPS，只用服务器 IP 测试，可以临时写：
 
 ```env

@@ -1,20 +1,22 @@
 import { Controller, Get } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { TokenService } from './common/security/token.service';
+import { AuthService } from './modules/auth/auth.service';
 
 @Controller()
 export class HealthController {
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly tokenService: TokenService,
+  ) {}
 
   @Get('api/service-info')
-  getServiceInfo() {
-    const issuer =
-      this.configService.get<string>('OIDC_ISSUER') ??
-      `http://localhost:${this.configService.get<number>('PORT') ?? 3000}`;
+  async getServiceInfo() {
+    const site = await this.authService.getSiteConfig();
 
     return {
-      name: 'SSO 认证中心',
+      name: site.siteName,
       status: 'ok',
-      issuer,
+      issuer: this.tokenService.getIssuer(),
       docs: [
         '/.well-known/openid-configuration',
         '/oauth2/authorize',

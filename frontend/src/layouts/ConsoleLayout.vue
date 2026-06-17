@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from '../utils/ui'
 import { useAuthStore } from '../stores/auth'
+import { authApi } from '../api/auth'
 import { consoleNavItems } from '../utils/console'
 import { useSidebarCollapsed } from '../composables/useSidebarCollapsed'
 import BrandMark from '../components/BrandMark.vue'
@@ -54,9 +55,15 @@ function logout() {
     cancelBtn: '取消',
     theme: 'warning',
     onConfirm: async () => {
-      authStore.clearSession()
-      await router.push('/login')
-      dialog.hide()
+      try {
+        await authApi.logout()
+      } catch {
+        // Local cleanup still prevents stale UI if the server session already expired.
+      } finally {
+        authStore.clearSession()
+        await router.push('/login')
+        dialog.hide()
+      }
     },
   })
 }

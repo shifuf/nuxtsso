@@ -16,6 +16,10 @@ export class AdminGuard implements CanActivate {
       throw new ForbiddenException('需要管理员权限');
     }
 
+    if (request.user.sessionType !== 'web_session') {
+      throw new ForbiddenException('管理接口仅允许站内会话访问');
+    }
+
     return true;
   }
 }

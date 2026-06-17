@@ -91,6 +91,10 @@ export const authApi = {
     const { data } = await http.get('/api/auth/session');
     return data as UserProfile;
   },
+  async logout() {
+    const { data } = await http.post('/api/auth/logout');
+    return data as { success: boolean };
+  },
   async listSessions() {
     const { data } = await http.get('/api/auth/account/sessions');
     return data as AccountSession[];
@@ -135,7 +139,7 @@ export const authApi = {
     const { data } = await http.get('/api/auth/social-providers', {
       params: clientId ? { clientId } : undefined,
     });
-    return data as Array<{ name: string; enabled: boolean }>;
+    return data as Array<{ name: string; type?: string; enabled: boolean }>;
   },
   async createSocialLoginQr(provider: string, clientId?: string, redirectUri?: string) {
     const { data } = await http.post(`/api/auth/social/${provider}/login-qr`, {
@@ -151,7 +155,39 @@ export const authApi = {
     return data as {
       status: 'pending' | 'scanned' | 'completed' | 'failed' | 'expired';
       provider?: string;
-      auth?: AuthResponse | null;
+      ticket?: string | null;
+      error?: string | null;
+      completedAt?: string | null;
+      scannedAt?: string | null;
+    };
+  },
+  async redeemSocialLoginTicket(ticket: string) {
+    const { data } = await http.post('/api/auth/social/redeem-ticket', { ticket });
+    return data as AuthResponse;
+  },
+  async createWechatMiniLoginQr(clientId?: string, redirectUri?: string) {
+    const { data } = await http.post('/api/auth/wechat-mini/login-qr', {
+      clientId,
+      redirectUri,
+    });
+    return data as {
+      state: string;
+      miniProgramPath: string;
+      scene: string;
+      qrCodeUrl?: string | null;
+      qrMode: 'dynamic' | 'fixed' | 'fallback' | 'platform';
+      qrContent: string;
+      expiresIn: number;
+    };
+  },
+  async getWechatMiniLoginStatus(state: string) {
+    const { data } = await http.get('/api/auth/wechat-mini/login-status', {
+      params: { state },
+    });
+    return data as {
+      status: 'pending' | 'scanned' | 'completed' | 'failed' | 'expired';
+      provider?: string;
+      ticket?: string | null;
       error?: string | null;
       completedAt?: string | null;
       scannedAt?: string | null;

@@ -9,6 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { createTransport } from 'nodemailer';
+import { SecretService } from '../../common/security/secret.service';
 import { PrismaService } from '../../database/prisma.service';
 
 const EMAIL_CONFIG_KEY = 'email-config';
@@ -69,7 +70,10 @@ const EMPTY_CONFIG: StoredEmailConfig = {
 export class EmailConfigService {
   private readonly logger = new Logger(EmailConfigService.name);
 
-  constructor(private readonly prismaService: PrismaService) {}
+  constructor(
+    private readonly prismaService: PrismaService,
+    private readonly secretService: SecretService,
+  ) {}
 
   private hasUsableConfig(config: StoredEmailConfig) {
     return Boolean(
@@ -153,7 +157,14 @@ export class EmailConfigService {
     return '';
   }
 
-  async getConfig(): Promise<StoredEmailConfig> {
+  private toSafeConfig(config: StoredEmailConfig): StoredEmailConfig {
+    return {
+      ...config,
+      password: this.secretService.mask(config.password),
+    };
+  }
+
+  private async getRuntimeConfig(): Promise<StoredEmailConfig> {
     const setting = await this.prismaService.systemSetting.findUnique({
       where: { key: EMAIL_CONFIG_KEY },
     });
@@ -163,19 +174,37 @@ export class EmailConfigService {
     }
 
     try {
-      return JSON.parse(setting.value) as StoredEmailConfig;
+      const parsed = JSON.parse(setting.value) as StoredEmailConfig;
+      return {
+        ...EMPTY_CONFIG,
+        ...parsed,
+        password: this.secretService.decryptMaybe(parsed.password),
+      };
     } catch {
       return EMPTY_CONFIG;
     }
   }
 
+  async getConfig(): Promise<StoredEmailConfig> {
+    return this.toSafeConfig(await this.getRuntimeConfig());
+  }
+
   async updateConfig(dto: EmailConfigDto): Promise<StoredEmailConfig> {
+    const currentSetting = await this.prismaService.systemSetting.findUnique({
+      where: { key: EMAIL_CONFIG_KEY },
+    });
+    const current = currentSetting
+      ? JSON.parse(currentSetting.value) as Partial<StoredEmailConfig>
+      : {};
     const config: StoredEmailConfig = {
       host: dto.host,
       port: dto.port,
       secure: dto.secure,
       username: dto.username,
-      password: dto.password,
+      password: this.secretService.preserveOrEncrypt(
+        dto.password,
+        current.password,
+      ),
       fromName: dto.fromName ?? '',
       fromAddress: dto.fromAddress,
     };
@@ -186,11 +215,14 @@ export class EmailConfigService {
       create: { key: EMAIL_CONFIG_KEY, value: JSON.stringify(config) },
     });
 
-    return config;
+    return this.toSafeConfig({
+      ...config,
+      password: this.secretService.decryptMaybe(config.password),
+    });
   }
 
   async isConfigured() {
-    return this.hasUsableConfig(await this.getConfig());
+    return this.hasUsableConfig(await this.getRuntimeConfig());
   }
 
   async sendMail(options: {
@@ -199,7 +231,7 @@ export class EmailConfigService {
     text: string;
     html?: string;
   }) {
-    const config = await this.getConfig();
+    const config = await this.getRuntimeConfig();
 
     if (!this.hasUsableConfig(config)) {
       throw new BadRequestException(
@@ -233,7 +265,7 @@ export class EmailConfigService {
   async testConfig(
     dto?: TestEmailConfigDto,
   ): Promise<{ success: boolean; message: string }> {
-    const config = await this.getConfig();
+    const config = await this.getRuntimeConfig();
 
     if (!this.hasUsableConfig(config)) {
       return {

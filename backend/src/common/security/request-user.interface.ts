@@ -5,4 +5,6 @@ export interface RequestUser {
   scopes: string[];
   clientId: string | null;
   token: string;
+  audience: string;
+  sessionType: 'web_session' | 'oauth_access';
 }

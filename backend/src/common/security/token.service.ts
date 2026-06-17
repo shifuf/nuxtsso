@@ -14,9 +14,11 @@ import {
   type JWTPayload,
 } from 'jose';
 import { createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { PrismaService } from '../../database/prisma.service';
 
 type ImportedPrivateKey = Awaited<ReturnType<typeof importPKCS8>>;
 type ImportedPublicKey = Awaited<ReturnType<typeof importSPKI>>;
+export type SessionTokenType = 'web_session' | 'oauth_access';
 
 interface TokenPayload extends JWTPayload {
   sub: string;
@@ -24,6 +26,8 @@ interface TokenPayload extends JWTPayload {
   role: 'admin' | 'user';
   scope: string;
   aud: string;
+  token_use: 'access' | 'id';
+  session_type: SessionTokenType;
   nonce?: string;
 }
 
@@ -35,6 +39,7 @@ interface IssueTokenParams {
   audience: string;
   nonce?: string;
   type?: 'access' | 'id';
+  sessionType?: SessionTokenType;
 }
 
 @Injectable()
@@ -43,18 +48,34 @@ export class TokenService implements OnModuleInit {
   private publicKey!: ImportedPublicKey;
   private publicJwk!: JWK;
   private readonly algorithm = 'RS256';
+  private runtimeIssuer: string | null = null;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prismaService: PrismaService,
+  ) {}
 
   async onModuleInit() {
-    const privateKeyPem = this.configService.get<string>('OIDC_PRIVATE_KEY');
-    const publicKeyPem = this.configService.get<string>('OIDC_PUBLIC_KEY');
+    await this.loadRuntimeIssuer();
+
+    const privateKeyPem = this.normalizePem(
+      this.configService.get<string>('OIDC_PRIVATE_KEY'),
+    );
+    const publicKeyPem = this.normalizePem(
+      this.configService.get<string>('OIDC_PUBLIC_KEY'),
+    );
 
     if (privateKeyPem && publicKeyPem) {
       this.privateKey = await importPKCS8(privateKeyPem, this.algorithm);
       this.publicKey = await importSPKI(publicKeyPem, this.algorithm);
       this.publicJwk = await exportJWK(createPublicKey(publicKeyPem));
       return;
+    }
+
+    if (this.configService.get<string>('NODE_ENV') === 'production') {
+      throw new InternalServerErrorException(
+        '生产环境必须配置 OIDC_PRIVATE_KEY 和 OIDC_PUBLIC_KEY',
+      );
     }
 
     const { privateKey, publicKey } = generateKeyPairSync('rsa', {
@@ -72,8 +93,13 @@ export class TokenService implements OnModuleInit {
     this.publicJwk = await exportJWK(publicKey);
   }
 
+  setRuntimeIssuer(issuer: string | null | undefined) {
+    this.runtimeIssuer = issuer?.trim() || null;
+  }
+
   getIssuer() {
     return (
+      this.runtimeIssuer ??
       this.configService.get<string>('OIDC_ISSUER') ??
       `http://localhost:${this.configService.get<number>('PORT') ?? 3000}`
     );
@@ -107,6 +133,8 @@ export class TokenService implements OnModuleInit {
       role: params.role,
       scope: params.scopes.join(' '),
       aud: params.audience,
+      token_use: params.type ?? 'access',
+      session_type: params.sessionType ?? 'web_session',
     };
 
     if (params.nonce) {
@@ -146,5 +174,20 @@ export class TokenService implements OnModuleInit {
         },
       ],
     };
+  }
+
+  private normalizePem(value?: string) {
+    return value?.replace(/\\n/g, '\n');
+  }
+
+  private async loadRuntimeIssuer() {
+    try {
+      const setting = await this.prismaService.systemSetting.findUnique({
+        where: { key: 'oidc-issuer' },
+      });
+      this.runtimeIssuer = setting?.value?.trim() || null;
+    } catch {
+      this.runtimeIssuer = null;
+    }
   }
 }

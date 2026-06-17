@@ -1,6 +1,7 @@
 export interface UserProfile {
   id: string;
   username: string | null;
+  displayName?: string | null;
   email: string | null;
   phone: string | null;
   emailVerified: boolean;
@@ -13,8 +14,16 @@ export interface UserProfile {
   hasPassword?: boolean;
   socialAccounts?: { provider: string; providerUserId: string }[];
   boundToUser?: { id: string; username: string | null; email: string | null } | null;
+  lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface TokenSet {
@@ -138,9 +147,20 @@ export interface JwksDocument {
   keys: JwksKey[];
 }
 
+export type SocialIdentityStrategy =
+  | 'unionid_or_app_openid'
+  | 'unionid_only'
+  | 'app_openid'
+  | 'provider_user_id';
+
+export type SocialProfileSyncMode =
+  | 'fill_missing'
+  | 'every_login'
+  | 'registration_only';
+
 export interface SocialProviderConfig {
   name: string;
-  type: 'oauth' | 'aggregated';
+  type: 'oauth' | 'aggregated' | 'wechat-mini';
   enabled: boolean;
   clientId: string;
   clientSecret: string;
@@ -150,15 +170,26 @@ export interface SocialProviderConfig {
   authUrl: string;
   tokenUrl: string;
   userInfoUrl: string;
+  fieldMapping: string;
+  signatureSecret: string;
+  ipWhitelist: string;
+  identityStrategy: SocialIdentityStrategy;
+  profileSyncMode: SocialProfileSyncMode;
+  miniProgramUseDynamicCode: boolean;
+  miniProgramSubmitFields: string[];
 }
 
 export interface SocialAccountBinding {
   id: string;
   provider: string;
   providerUserId: string;
+  providerAppId?: string | null;
+  openid?: string | null;
+  unionid?: string | null;
   username: string | null;
   email: string | null;
   avatar: string | null;
+  lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -167,6 +198,9 @@ export interface SocialAccountItem {
   id: string;
   provider: string;
   providerUserId: string;
+  providerAppId?: string | null;
+  openid?: string | null;
+  unionid?: string | null;
   userId: string;
   boundUsername: string | null;
   boundEmail: string | null;

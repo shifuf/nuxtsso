@@ -24,8 +24,7 @@ onMounted(async () => {
   const err = route.query.error as string | undefined
   const state = route.query.state as string | undefined
   const mode = route.query.mode as string | undefined
-  const accessToken = route.query.access_token as string | undefined
-  const user = route.query.user as string | undefined
+  const ticket = route.query.ticket as string | undefined
 
   if (err) {
     error.value = decodeURIComponent(err)
@@ -33,22 +32,16 @@ onMounted(async () => {
     return
   }
 
-  // Login mode: backend has already created/returned user, apply tokens from URL
-  if (accessToken && user) {
+  if (ticket) {
     try {
-      authStore.applySession({
-        access_token: accessToken,
-        refresh_token: (route.query.refresh_token as string) || '',
-        token_type: 'Bearer',
-        expires_in: Number(route.query.expires_in || '3600'),
-        scope: (route.query.scope as string) || '',
-        user: JSON.parse(decodeURIComponent(user)),
-      })
+      const result = await authApi.redeemSocialLoginTicket(ticket)
+      authStore.applySession(result)
+      await router.replace({ path: route.path, query: {} })
       MessagePlugin.success('登录成功')
       processing.value = false
       return
-    } catch {
-      error.value = '解析用户信息失败'
+    } catch (e: unknown) {
+      error.value = (e as { message?: string })?.message || '登录凭证无效或已过期'
       processing.value = false
       return
     }

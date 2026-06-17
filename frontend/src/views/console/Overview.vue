@@ -22,15 +22,15 @@ async function loadData() {
   loading.value = true
   try {
     const [apps, summary, providers, logs] = await Promise.all([
-      adminApi.listApplications(),
+      adminApi.listApplications({ page: 1, pageSize: 6 }),
       adminApi.getAuditSummary(7),
       adminApi.listSocialProviders(),
       adminApi.listAuditLogs({ limit: 5 }),
     ])
-    applications.value = apps || []
+    applications.value = apps.items || []
     auditSummary.value = summary
     socialProviders.value = providers || []
-    recentLogs.value = logs || []
+    recentLogs.value = logs.items || []
   } catch { /* silent */ }
   finally { loading.value = false }
 }

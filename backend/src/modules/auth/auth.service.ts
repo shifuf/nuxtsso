@@ -18,13 +18,15 @@ import {
 } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomInt } from 'node:crypto';
-import { TokenService } from '../../common/security/token.service';
+import { TokenService, type SessionTokenType } from '../../common/security/token.service';
 import { PrismaService } from '../../database/prisma.service';
 import { parseStringArray, toJsonString } from '../../common/utils/json.util';
 import { AuditService } from '../audit/audit.service';
 import { ApplicationService } from '../application/application.service';
 import { EmailConfigService } from '../email-config/email-config.service';
 import { UserService } from '../user/user.service';
+
+const WECHAT_PROVIDER_NAMES = ['wechat', 'wechat-aggregated', 'wechat-mini'];
 
 export interface SiteConfig {
   siteName: string;
@@ -79,7 +81,6 @@ export class LoginDto {
   username!: string;
 
   @IsString()
-  @MinLength(3)
   password!: string;
 
   @IsOptional()
@@ -120,7 +121,7 @@ export class RegisterDto {
   code?: string;
 
   @IsString()
-  @MinLength(3)
+  @MinLength(8)
   password!: string;
 
   @IsOptional()
@@ -150,7 +151,7 @@ export class PublicRegisterDto {
   code?: string;
 
   @IsString()
-  @MinLength(3)
+  @MinLength(8)
   password!: string;
 
   @IsOptional()
@@ -169,7 +170,7 @@ export class ResetPasswordDto {
   code!: string;
 
   @IsString()
-  @MinLength(3)
+  @MinLength(8, { message: '新密码长度不能少于 8 位' })
   newPassword!: string;
 }
 
@@ -195,6 +196,7 @@ interface IssueTokensOptions {
   includeIdToken?: boolean;
   nonce?: string | null;
   userAgent?: string | null;
+  sessionType?: SessionTokenType;
 }
 
 export interface AccountSessionInfo {
@@ -320,7 +322,17 @@ export class AuthService {
   }
 
   private isDebugEmailCodeEnabled() {
-    return this.configService.get<boolean>('ENABLE_DEBUG_EMAIL_CODE') ?? true;
+    return this.configService.get<boolean>('ENABLE_DEBUG_EMAIL_CODE') ?? false;
+  }
+
+  private assertPasswordPolicy(password: string) {
+    if (password.length < 8) {
+      throw new BadRequestException('密码长度不能少于 8 位');
+    }
+
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      throw new BadRequestException('密码必须同时包含字母和数字');
+    }
   }
 
   private normalizeRole(role: UserRole) {
@@ -358,7 +370,12 @@ export class AuthService {
 
   async issueTokensForUser(options: IssueTokensOptions) {
     const scopes = options.scopes.length ? options.scopes : this.buildDefaultScopes();
-    const audience = options.clientId ?? 'sso-web';
+    const sessionType = options.sessionType ?? 'web_session';
+    if (sessionType === 'oauth_access' && !options.clientId) {
+      throw new BadRequestException('OAuth 令牌需要有效的 clientId');
+    }
+
+    const audience = sessionType === 'oauth_access' ? options.clientId! : 'sso-web';
     const email = options.user.email ?? '';
     const accessToken = await this.tokenService.issueToken({
       userId: options.user.id,
@@ -367,6 +384,7 @@ export class AuthService {
       scopes,
       audience,
       type: 'access',
+      sessionType,
     });
     const refreshToken = this.buildRefreshToken();
     const idToken = options.includeIdToken
@@ -378,6 +396,7 @@ export class AuthService {
           audience,
           nonce: options.nonce ?? undefined,
           type: 'id',
+          sessionType,
         })
       : undefined;
     const accessTokenExpiresIn =
@@ -391,6 +410,7 @@ export class AuthService {
         refreshToken,
         clientId: options.clientId ?? null,
         userId: options.user.id,
+        tokenType: sessionType,
         scopes: toJsonString(scopes),
         expiresAt: new Date(Date.now() + accessTokenExpiresIn * 1000),
         refreshExpiresAt: new Date(Date.now() + refreshTokenExpiresIn * 1000),
@@ -617,6 +637,8 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, meta: RequestMeta) {
+    this.assertPasswordPolicy(dto.password);
+
     await this.applicationService.assertRegistrationAllowed(
       dto.clientId,
       dto.redirectUri,
@@ -683,6 +705,8 @@ export class AuthService {
   }
 
   async publicRegister(dto: PublicRegisterDto, meta: RequestMeta) {
+    this.assertPasswordPolicy(dto.password);
+
     const config = await this.getAuthConfig();
     if (!config.publicApiEnabled) {
       throw new BadRequestException('开放注册 API 未启用，请联系管理员开启');
@@ -753,6 +777,8 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto, meta: RequestMeta) {
+    this.assertPasswordPolicy(dto.newPassword);
+
     await this.consumeVerificationCode(
       dto.email,
       VerificationCodeType.RESET_PASSWORD,
@@ -923,17 +949,18 @@ export class AuthService {
 
   async getSocialProviders(clientId?: string) {
     const providers = await this.prismaService.socialProvider.findMany({
-      select: { name: true, enabled: true },
+      select: { name: true, type: true, enabled: true },
       orderBy: { createdAt: 'asc' },
     });
 
     const allProviders = providers.length > 0
       ? providers
       : [
-          { name: 'wechat', enabled: false },
-          { name: 'qq', enabled: false },
-          { name: 'github', enabled: false },
-          { name: 'google', enabled: false },
+          { name: 'wechat', type: 'oauth', enabled: false },
+          { name: 'qq', type: 'oauth', enabled: false },
+          { name: 'github', type: 'oauth', enabled: false },
+          { name: 'google', type: 'oauth', enabled: false },
+          { name: 'wechat-mini', type: 'wechat-mini', enabled: false },
         ];
 
     if (!clientId) return allProviders;
@@ -946,7 +973,57 @@ export class AuthService {
     if (!app?.enabledSocialProviders) return [];
 
     const allowed = JSON.parse(app.enabledSocialProviders) as string[];
-    return allProviders.filter(p => allowed.includes(p.name));
+    return allProviders.filter((provider) =>
+      allowed.includes(provider.name) ||
+      (
+        WECHAT_PROVIDER_NAMES.includes(provider.name) &&
+        allowed.some((name) => WECHAT_PROVIDER_NAMES.includes(name))
+      ),
+    );
+  }
+
+  async revokeAccessToken(accessToken: string) {
+    await this.prismaService.oauthToken.updateMany({
+      where: { accessToken },
+      data: {
+        revoked: true,
+      },
+    });
+  }
+
+  async refreshWebSession(refreshToken: string, meta: RequestMeta) {
+    const token = await this.findTokenByRefreshToken(refreshToken);
+
+    if (!token || token.tokenType !== 'web_session' || token.clientId) {
+      throw new UnauthorizedException('刷新令牌无效');
+    }
+
+    if (token.user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('用户已被禁用');
+    }
+
+    await this.revokeRefreshToken(refreshToken);
+
+    const scopes = parseStringArray(token.scopes);
+    const tokens = await this.issueTokensForUser({
+      user: token.user,
+      scopes,
+      userAgent: meta.userAgent,
+      sessionType: 'web_session',
+    });
+
+    await this.auditService.create({
+      action: 'auth.session.refreshed',
+      actorId: token.user.id,
+      actorEmail: token.user.email,
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      ...tokens,
+      user: this.userService.toApiUser(token.user),
+    };
   }
 
   async setPasswordForSocialUser(userId: string, password: string) {
@@ -962,9 +1039,7 @@ export class AuthService {
       throw new BadRequestException('该账号已设置密码，请使用修改密码功能');
     }
 
-    if (password.length < 6) {
-      throw new BadRequestException('密码长度不能少于 6 位');
-    }
+    this.assertPasswordPolicy(password);
 
     const updatedUser = await this.prismaService.user.update({
       where: { id: userId },

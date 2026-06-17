@@ -12,6 +12,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS "User" (
   "id" TEXT NOT NULL PRIMARY KEY,
   "username" TEXT,
+  "displayName" TEXT,
   "email" TEXT,
   "phone" TEXT,
   "passwordHash" TEXT,
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS "User" (
   "avatar" TEXT,
   "registrationSource" TEXT,
   "registerClientId" TEXT,
+  "lastLoginAt" DATETIME,
   "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -56,10 +58,17 @@ CREATE TABLE IF NOT EXISTS "SocialAccount" (
   "id" TEXT NOT NULL PRIMARY KEY,
   "userId" TEXT NOT NULL,
   "provider" TEXT NOT NULL,
+  "providerAppId" TEXT,
   "providerUserId" TEXT NOT NULL,
+  "openid" TEXT,
+  "unionid" TEXT,
   "accessToken" TEXT NOT NULL,
   "refreshToken" TEXT,
+  "nickname" TEXT,
+  "avatar" TEXT,
   "profile" TEXT NOT NULL,
+  "rawProfile" TEXT,
+  "lastLoginAt" DATETIME,
   "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "SocialAccount_userId_fkey"
@@ -69,6 +78,10 @@ CREATE TABLE IF NOT EXISTS "SocialAccount" (
 
 CREATE UNIQUE INDEX IF NOT EXISTS "SocialAccount_provider_providerUserId_key"
   ON "SocialAccount"("provider", "providerUserId");
+CREATE INDEX IF NOT EXISTS "SocialAccount_provider_unionid_idx"
+  ON "SocialAccount"("provider", "unionid");
+CREATE INDEX IF NOT EXISTS "SocialAccount_provider_providerAppId_openid_idx"
+  ON "SocialAccount"("provider", "providerAppId", "openid");
 
 CREATE TABLE IF NOT EXISTS "VerificationCode" (
   "id" TEXT NOT NULL PRIMARY KEY,
@@ -151,6 +164,13 @@ CREATE TABLE IF NOT EXISTS "SocialProvider" (
   "authUrl" TEXT,
   "tokenUrl" TEXT,
   "userInfoUrl" TEXT,
+  "fieldMapping" TEXT,
+  "signatureSecret" TEXT NOT NULL DEFAULT '',
+  "ipWhitelist" TEXT,
+  "identityStrategy" TEXT NOT NULL DEFAULT 'unionid_or_app_openid',
+  "profileSyncMode" TEXT NOT NULL DEFAULT 'fill_missing',
+  "miniProgramUseDynamicCode" INTEGER NOT NULL DEFAULT 1,
+  "miniProgramSubmitFields" TEXT DEFAULT '["jsCode"]',
   "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -222,6 +242,50 @@ function hasRequiredTables(databaseFile) {
   }
 }
 
+function ensureColumn(db, tableName, columnName, definition) {
+  const rows = db.prepare(`PRAGMA table_info("${tableName}")`).all();
+  const columns = new Set(rows.map((row) => row.name));
+  if (!columns.has(columnName)) {
+    db.exec(`ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${definition}`);
+  }
+}
+
+function ensureIndex(db, definition) {
+  db.exec(definition);
+}
+
+function ensureExistingSchema(databaseFile) {
+  const db = new Database(databaseFile);
+
+  try {
+    db.pragma('journal_mode = MEMORY');
+    ensureColumn(db, 'User', 'displayName', 'TEXT');
+    ensureColumn(db, 'User', 'lastLoginAt', 'DATETIME');
+
+    ensureColumn(db, 'Application', 'enabledSocialProviders', 'TEXT');
+
+    ensureColumn(db, 'SocialAccount', 'providerAppId', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'openid', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'unionid', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'nickname', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'avatar', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'rawProfile', 'TEXT');
+    ensureColumn(db, 'SocialAccount', 'lastLoginAt', 'DATETIME');
+    ensureIndex(db, 'CREATE INDEX IF NOT EXISTS "SocialAccount_provider_unionid_idx" ON "SocialAccount"("provider", "unionid")');
+    ensureIndex(db, 'CREATE INDEX IF NOT EXISTS "SocialAccount_provider_providerAppId_openid_idx" ON "SocialAccount"("provider", "providerAppId", "openid")');
+
+    ensureColumn(db, 'SocialProvider', 'fieldMapping', 'TEXT');
+    ensureColumn(db, 'SocialProvider', 'signatureSecret', "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, 'SocialProvider', 'ipWhitelist', 'TEXT');
+    ensureColumn(db, 'SocialProvider', 'identityStrategy', "TEXT NOT NULL DEFAULT 'unionid_or_app_openid'");
+    ensureColumn(db, 'SocialProvider', 'profileSyncMode', "TEXT NOT NULL DEFAULT 'fill_missing'");
+    ensureColumn(db, 'SocialProvider', 'miniProgramUseDynamicCode', 'INTEGER NOT NULL DEFAULT 1');
+    ensureColumn(db, 'SocialProvider', 'miniProgramSubmitFields', 'TEXT DEFAULT \'["jsCode"]\'');
+  } finally {
+    db.close();
+  }
+}
+
 function createSchema(databaseFile) {
   const db = new Database(databaseFile);
 
@@ -275,6 +339,7 @@ function main() {
   ensureDatabaseDirectory(databaseFile);
 
   if (hasRequiredTables(databaseFile)) {
+    ensureExistingSchema(databaseFile);
     console.log(`[db:ensure] Database is ready: ${databaseFile}`);
     return;
   }

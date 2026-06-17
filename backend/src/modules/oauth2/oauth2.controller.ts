@@ -4,8 +4,11 @@ import {
   Get,
   Post,
   Query,
+  Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { CurrentUser } from '../../common/security/current-user.decorator';
 import { JwtAuthGuard } from '../../common/security/jwt-auth.guard';
 import type { RequestUser } from '../../common/security/request-user.interface';
@@ -20,6 +23,16 @@ import {
 export class Oauth2Controller {
   constructor(private readonly oauth2Service: Oauth2Service) {}
 
+  private isBrowserAuthorizeNavigation(request: Request) {
+    const destination = request.headers['sec-fetch-dest'];
+    if (destination === 'document') {
+      return true;
+    }
+
+    const accept = request.headers.accept ?? '';
+    return accept.includes('text/html') && !accept.includes('application/json');
+  }
+
   @Get('/.well-known/openid-configuration')
   getConfiguration() {
     return this.oauth2Service.getDiscoveryDocument();
@@ -31,8 +44,18 @@ export class Oauth2Controller {
   }
 
   @Get('/oauth2/authorize')
-  getAuthorizeMetadata(@Query() query: AuthorizeQueryDto) {
-    return this.oauth2Service.getAuthorizeMetadata(query);
+  async getAuthorizeMetadata(
+    @Query() query: AuthorizeQueryDto,
+    @Req() request: Request,
+    @Res() response: Response,
+  ) {
+    if (this.isBrowserAuthorizeNavigation(request)) {
+      const [, queryString = ''] = request.originalUrl.split('?', 2);
+      response.redirect(302, `/login${queryString ? `?${queryString}` : ''}`);
+      return;
+    }
+
+    response.json(await this.oauth2Service.getAuthorizeMetadata(query));
   }
 
   @Post('/oauth2/validate-client')
@@ -56,7 +79,7 @@ export class Oauth2Controller {
 
   @UseGuards(JwtAuthGuard)
   @Get('/oauth2/userinfo')
-  getUserInfo(@CurrentUser() user: RequestUser) {
+  async getUserInfo(@CurrentUser() user: RequestUser) {
     return this.oauth2Service.getUserInfo(user);
   }
 }

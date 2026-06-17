@@ -1,17 +1,22 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { UserStatus } from '@prisma/client';
-import { randomBytes } from 'node:crypto';
+import { UserStatus, type User } from '@prisma/client';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { UserService } from '../user/user.service';
 import { ApplicationService } from '../application/application.service';
+import { parseStringArray } from '../../common/utils/json.util';
+import { SecretService } from '../../common/security/secret.service';
 
 /**
  * Thrown when a social login has no bound account and publicApiEnabled is false.
@@ -98,9 +103,55 @@ const PROVIDER_CONFIGS: Record<string, ProviderEndpoints> = {
 interface SocialUserProfile {
   provider: string;
   providerUserId: string;
+  providerAppId?: string | null;
+  openid?: string | null;
+  unionid?: string | null;
   email: string | null;
+  phone?: string | null;
   username: string;
+  displayName?: string | null;
   avatar: string | null;
+  rawProfile?: Record<string, unknown> | null;
+}
+
+type SocialIdentityStrategy =
+  | 'unionid_or_app_openid'
+  | 'unionid_only'
+  | 'app_openid'
+  | 'provider_user_id';
+
+type SocialProfileSyncMode =
+  | 'fill_missing'
+  | 'every_login'
+  | 'registration_only';
+
+interface SocialProviderRuntimeConfig {
+  name: string;
+  type: string;
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+  apiUrl: string | null;
+  redirectUri: string | null;
+  scopes: string | null;
+  authUrl: string | null;
+  tokenUrl: string | null;
+  userInfoUrl: string | null;
+  fieldMapping: string | null;
+  signatureSecret: string;
+  ipWhitelist: string | null;
+  identityStrategy: string;
+  profileSyncMode: string;
+  miniProgramUseDynamicCode: boolean;
+  miniProgramSubmitFields: string | null;
+}
+
+interface SocialProviderPolicy {
+  identityStrategy: SocialIdentityStrategy;
+  profileSyncMode: SocialProfileSyncMode;
+  fieldMapping: Record<string, string>;
+  miniProgramUseDynamicCode: boolean;
+  miniProgramSubmitFields: string[];
 }
 
 interface PendingBindState {
@@ -122,9 +173,12 @@ interface PendingLoginState {
   expiresAt: string;
   status?: 'pending' | 'scanned' | 'completed' | 'failed';
   auth?: Record<string, unknown>;
+  authTicket?: string;
   error?: string;
   completedAt?: string;
   scannedAt?: string;
+  miniProgramPath?: string;
+  scene?: string;
 }
 
 interface SocialLoginApplicationContext {
@@ -132,23 +186,74 @@ interface SocialLoginApplicationContext {
   redirectUri?: string | null;
 }
 
+interface SocialUserResolutionOptions {
+  autoCreateUnboundUser?: boolean;
+}
+
+interface SocialCallbackSecurityContext {
+  query?: Record<string, unknown>;
+  requestIp?: string | null;
+}
+
+interface WechatMiniLoginConfirmPayload {
+  state: string;
+  jsCode?: string;
+  providerUserId?: string;
+  openid?: string;
+  unionid?: string;
+  nickName?: string;
+  nickname?: string;
+  avatarUrl?: string;
+  avatar?: string;
+  profile?: Record<string, unknown>;
+}
+
+interface WechatMiniSessionIdentity {
+  openid: string;
+  unionid?: string;
+  sessionKey?: string;
+}
+
+type WechatMiniQrMode = 'dynamic' | 'fixed' | 'fallback' | 'platform';
+
 interface AuthorizationPayload {
   authorizeUrl: string;
   qrCodeUrl?: string | null;
+  state?: string;
+  miniProgramPath?: string;
+  scene?: string;
+  qrMode?: WechatMiniQrMode;
+  qrContent?: string;
+  expiresIn?: number;
 }
 
 const SOCIAL_BIND_STATE_PREFIX = 'social-bind-state:';
 const SOCIAL_LOGIN_STATE_PREFIX = 'social-login-state:';
+const SOCIAL_LOGIN_TICKET_PREFIX = 'social-login-ticket:';
+const WECHAT_PROVIDER_NAMES = ['wechat', 'wechat-aggregated', 'wechat-mini'];
 
 @Injectable()
 export class SocialAuthService {
+  private readonly logger = new Logger(SocialAuthService.name);
+
   constructor(
     private readonly prismaService: PrismaService,
     private readonly authService: AuthService,
     private readonly userService: UserService,
     private readonly applicationService: ApplicationService,
     private readonly configService: ConfigService,
+    private readonly secretService: SecretService,
   ) {}
+
+  private decryptProviderRecord<T extends { clientSecret: string; signatureSecret: string }>(
+    provider: T,
+  ): T {
+    return {
+      ...provider,
+      clientSecret: this.secretService.decryptMaybe(provider.clientSecret),
+      signatureSecret: this.secretService.decryptMaybe(provider.signatureSecret),
+    };
+  }
 
   private getBackendBaseUrl(): string {
     const port = this.configService.get<number>('PORT') ?? 3000;
@@ -164,12 +269,514 @@ export class SocialAuthService {
     return this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:5173';
   }
 
+  private getWechatMiniLoginPage(providerRecord?: { redirectUri?: string | null }): string {
+    return providerRecord?.redirectUri?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_LOGIN_PAGE')
+      || 'pages/wechat-scan-login/wechat-scan-login';
+  }
+
+  private getWechatMiniQrImageUrl(providerRecord?: { authUrl?: string | null }): string {
+    const configured = providerRecord?.authUrl?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_QR_IMAGE_URL')?.trim()
+      || '';
+    if (configured) {
+      return configured;
+    }
+
+    const defaultUploadQrPath = join(process.cwd(), 'uploads', 'wechat-mini-qr.jpg');
+    return existsSync(defaultUploadQrPath) ? '/uploads/wechat-mini-qr.jpg' : '';
+  }
+
+  private getWechatMiniEnvVersion(): 'release' | 'trial' | 'develop' {
+    return this.configService.get<'release' | 'trial' | 'develop'>('WECHAT_MINI_PROGRAM_ENV_VERSION') ?? 'release';
+  }
+
+  private isWechatMiniInsecureIdentityAllowed(): boolean {
+    return this.configService.get<boolean>('WECHAT_MINI_PROGRAM_ALLOW_INSECURE_IDENTITY') ?? false;
+  }
+
+  private describeExternalError(error: unknown, fallback: string) {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return fallback;
+  }
+
+  private normalizeIdentityStrategy(value?: string | null): SocialIdentityStrategy {
+    switch (value) {
+      case 'unionid_only':
+      case 'app_openid':
+      case 'provider_user_id':
+      case 'unionid_or_app_openid':
+        return value;
+      default:
+        return 'unionid_or_app_openid';
+    }
+  }
+
+  private normalizeProfileSyncMode(value?: string | null): SocialProfileSyncMode {
+    switch (value) {
+      case 'every_login':
+      case 'registration_only':
+      case 'fill_missing':
+        return value;
+      default:
+        return 'fill_missing';
+    }
+  }
+
+  private parseFieldMapping(value?: string | null) {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+      }
+
+      return Object.fromEntries(
+        Object.entries(parsed)
+          .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+          .map(([key, path]) => [key, path.trim()])
+          .filter(([, path]) => path),
+      );
+    } catch {
+      const entries = trimmed
+        .split(/[\r\n,]+/)
+        .map((line) => line.trim())
+        .map((line) => line.match(/^([\w.-]+)\s*[:=]\s*(.+)$/))
+        .filter((match): match is RegExpMatchArray => Boolean(match))
+        .map((match) => [match[1], match[2].trim()] as const)
+        .filter(([, path]) => path);
+
+      return Object.fromEntries(entries);
+    }
+  }
+
+  private parseConfigStringList(value?: string | null) {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim())
+          .filter(Boolean);
+      }
+    } catch {
+      // Fall back to newline/comma separated text.
+    }
+
+    return trimmed
+      .split(/[\r\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  private normalizeRequestIp(value?: string | null) {
+    const first = value?.split(',')[0]?.trim();
+    if (!first) {
+      return null;
+    }
+
+    const withoutIpv6Prefix = first.startsWith('::ffff:')
+      ? first.slice('::ffff:'.length)
+      : first;
+    const bracketMatch = withoutIpv6Prefix.match(/^\[([^\]]+)\](?::\d+)?$/);
+    if (bracketMatch) {
+      return bracketMatch[1];
+    }
+
+    const ipv4WithPort = withoutIpv6Prefix.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/);
+    return ipv4WithPort ? ipv4WithPort[1] : withoutIpv6Prefix;
+  }
+
+  private ipv4ToNumber(ip: string) {
+    const parts = ip.split('.');
+    if (parts.length !== 4) {
+      return null;
+    }
+
+    return parts.reduce<number | null>((acc, part) => {
+      if (acc === null || !/^\d+$/.test(part)) {
+        return null;
+      }
+      const value = Number(part);
+      if (value < 0 || value > 255) {
+        return null;
+      }
+      return ((acc << 8) + value) >>> 0;
+    }, 0);
+  }
+
+  private isIpAllowedByRule(requestIp: string, rule: string) {
+    const cidrMatch = rule.match(/^(.+)\/(\d{1,2})$/);
+    if (cidrMatch) {
+      const networkIp = this.normalizeRequestIp(cidrMatch[1]);
+      const prefix = Number(cidrMatch[2]);
+      const requestNumber = this.ipv4ToNumber(requestIp);
+      const networkNumber = networkIp ? this.ipv4ToNumber(networkIp) : null;
+
+      if (
+        requestNumber === null ||
+        networkNumber === null ||
+        prefix < 0 ||
+        prefix > 32
+      ) {
+        return false;
+      }
+
+      const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+      return (requestNumber & mask) === (networkNumber & mask);
+    }
+
+    return requestIp === this.normalizeRequestIp(rule);
+  }
+
+  private getFirstQueryValue(value: unknown) {
+    if (Array.isArray(value)) {
+      return typeof value[0] === 'string' ? value[0] : undefined;
+    }
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private buildSignaturePayload(query: Record<string, unknown>) {
+    return Object.entries(query)
+      .filter(([key]) => !['sign', 'signature'].includes(key.toLowerCase()))
+      .flatMap(([key, value]) => {
+        if (Array.isArray(value)) {
+          return value
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => [key, item] as const);
+        }
+        return typeof value === 'string' ? [[key, value] as const] : [];
+      })
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+        const keyCompare = leftKey.localeCompare(rightKey);
+        return keyCompare === 0 ? leftValue.localeCompare(rightValue) : keyCompare;
+      })
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+  }
+
+  private safeCompare(left: string, right: string) {
+    const leftBuffer = Buffer.from(left);
+    const rightBuffer = Buffer.from(right);
+    return leftBuffer.length === rightBuffer.length &&
+      timingSafeEqual(leftBuffer, rightBuffer);
+  }
+
+  private verifyCallbackSignature(
+    signature: string,
+    query: Record<string, unknown>,
+    secret: string,
+  ) {
+    const payload = this.buildSignaturePayload(query);
+    const expectedHex = createHmac('sha256', secret).update(payload).digest('hex');
+    const expectedBase64 = createHmac('sha256', secret).update(payload).digest('base64');
+    const normalizedSignature = signature.trim();
+
+    if (/^[a-f0-9]{64}$/i.test(normalizedSignature)) {
+      return this.safeCompare(expectedHex, normalizedSignature.toLowerCase());
+    }
+
+    return this.safeCompare(expectedBase64, normalizedSignature);
+  }
+
+  private validateCallbackSecurity(
+    providerRecord: SocialProviderRuntimeConfig,
+    context?: SocialCallbackSecurityContext,
+  ) {
+    const whitelist = this.parseConfigStringList(providerRecord.ipWhitelist);
+    if (whitelist.length > 0) {
+      const requestIp = this.normalizeRequestIp(context?.requestIp);
+      if (!requestIp || !whitelist.some((rule) => this.isIpAllowedByRule(requestIp, rule))) {
+        throw new BadRequestException('第三方回调来源 IP 不在白名单内');
+      }
+    }
+
+    const signatureSecret = providerRecord.signatureSecret?.trim();
+    if (!signatureSecret) {
+      return;
+    }
+
+    const query = context?.query;
+    const signature = query
+      ? this.getFirstQueryValue(query.sign) ?? this.getFirstQueryValue(query.signature)
+      : undefined;
+
+    if (!signature) {
+      if (providerRecord.type === 'aggregated') {
+        throw new BadRequestException('第三方回调缺少签名参数');
+      }
+      return;
+    }
+
+    if (!this.verifyCallbackSignature(signature, query ?? {}, signatureSecret)) {
+      throw new BadRequestException('第三方回调签名校验失败');
+    }
+  }
+
+  private parseProviderPolicy(
+    providerRecord?: Partial<SocialProviderRuntimeConfig> | null,
+  ): SocialProviderPolicy {
+    const miniProgramSubmitFields = providerRecord?.miniProgramSubmitFields
+      ? parseStringArray(providerRecord.miniProgramSubmitFields)
+      : [];
+
+    return {
+      identityStrategy: this.normalizeIdentityStrategy(providerRecord?.identityStrategy),
+      profileSyncMode: this.normalizeProfileSyncMode(providerRecord?.profileSyncMode),
+      fieldMapping: this.parseFieldMapping(providerRecord?.fieldMapping),
+      miniProgramUseDynamicCode: providerRecord?.miniProgramUseDynamicCode ?? true,
+      miniProgramSubmitFields: miniProgramSubmitFields.length > 0
+        ? [...new Set(miniProgramSubmitFields)]
+        : ['jsCode'],
+    };
+  }
+
+  private readMappedValue(source: unknown, path?: string) {
+    if (!path || source === null || source === undefined) {
+      return undefined;
+    }
+
+    return path
+      .split('.')
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .reduce<unknown>((current, segment) => {
+        if (current === null || current === undefined) {
+          return undefined;
+        }
+
+        if (Array.isArray(current) && /^\d+$/.test(segment)) {
+          return current[Number(segment)];
+        }
+
+        if (typeof current === 'object' && segment in current) {
+          return (current as Record<string, unknown>)[segment];
+        }
+
+        return undefined;
+      }, source);
+  }
+
+  private getMappedString(
+    source: unknown,
+    mapping: Record<string, string>,
+    keys: string[],
+    fallbackPaths: string[],
+  ) {
+    const paths = [
+      ...keys.map((key) => mapping[key]).filter((path): path is string => Boolean(path)),
+      ...fallbackPaths,
+    ];
+
+    for (const path of paths) {
+      const value = this.readMappedValue(source, path);
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+      if (typeof value === 'number' || typeof value === 'bigint') {
+        return String(value);
+      }
+    }
+
+    return null;
+  }
+
+  private buildMappedSocialProfile(
+    provider: string,
+    data: Record<string, unknown>,
+    mapping: Record<string, string>,
+    defaults?: Partial<SocialUserProfile>,
+  ): SocialUserProfile {
+    const providerUserId = this.getMappedString(
+      data,
+      mapping,
+      ['providerUserId', 'userId', 'uniqueId', 'id'],
+      ['id', 'sub', 'social_uid', 'uid', 'unionid', 'openid'],
+    );
+    if (!providerUserId) {
+      throw new BadRequestException(`第三方登录 ${provider} 未返回用户唯一 ID`);
+    }
+
+    const openid = this.getMappedString(data, mapping, ['openid', 'openId'], ['openid', 'open_id']);
+    const unionid = this.getMappedString(data, mapping, ['unionid', 'unionId'], ['unionid', 'union_id']);
+    const nickname = this.getMappedString(
+      data,
+      mapping,
+      ['nickname', 'nickName', 'username', 'displayName', 'name'],
+      ['nickname', 'nickName', 'name', 'login', 'username'],
+    ) ?? defaults?.username ?? `${provider}_${providerUserId.slice(0, 8)}`;
+
+    return {
+      provider,
+      providerUserId,
+      providerAppId: defaults?.providerAppId ?? this.getMappedString(data, mapping, ['providerAppId', 'appId'], ['appid', 'app_id']),
+      openid: openid ?? defaults?.openid ?? null,
+      unionid: unionid ?? defaults?.unionid ?? null,
+      email: this.getMappedString(data, mapping, ['email'], ['email']) ?? defaults?.email ?? null,
+      phone: this.getMappedString(data, mapping, ['phone', 'mobile'], ['phone', 'phoneNumber', 'mobile']) ?? defaults?.phone ?? null,
+      username: nickname,
+      displayName: this.getMappedString(data, mapping, ['displayName'], ['displayName', 'name']) ?? nickname,
+      avatar: this.getMappedString(
+        data,
+        mapping,
+        ['avatar', 'avatarUrl', 'picture'],
+        ['avatar', 'avatarUrl', 'avatar_url', 'picture', 'headimgurl', 'faceimg', 'figureurl_qq'],
+      ) ?? defaults?.avatar ?? null,
+      rawProfile: data,
+    };
+  }
+
+  private resolveOAuthRedirectUri(
+    providerRecord: { redirectUri?: string | null },
+    callbackPath: string,
+  ) {
+    const configured = providerRecord.redirectUri?.trim();
+    const callbackQuery = callbackPath.includes('?')
+      ? callbackPath.slice(callbackPath.indexOf('?'))
+      : '';
+
+    if (!configured) {
+      return `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
+    }
+
+    if (/^https?:\/\//i.test(configured)) {
+      const parsed = new URL(configured);
+      const hasExplicitPath = parsed.pathname && parsed.pathname !== '/';
+      if (hasExplicitPath) {
+        return callbackQuery && !parsed.search
+          ? `${configured}${callbackQuery}`
+          : configured;
+      }
+      return `${configured.replace(/\/+$/, '')}${callbackPath}`;
+    }
+
+    if (configured.startsWith('/')) {
+      return `${this.getOAuthCallbackBaseUrl()}${configured}`;
+    }
+
+    return `https://${configured.replace(/\/+$/, '')}${callbackPath}`;
+  }
+
+  async assertProviderAllowedForApplication(
+    provider: string,
+    clientId?: string | null,
+    redirectUri?: string | null,
+  ) {
+    if ((clientId && !redirectUri) || (!clientId && redirectUri)) {
+      throw new BadRequestException('第三方登录需要完整的应用上下文');
+    }
+
+    if (!clientId || !redirectUri) {
+      return null;
+    }
+
+    const { application } = await this.applicationService.resolveAuthorizeContext(
+      clientId,
+      redirectUri,
+    );
+    const allowedProviders = application.enabledSocialProviders
+      ? parseStringArray(application.enabledSocialProviders)
+      : [];
+
+    const isWechatProvider = WECHAT_PROVIDER_NAMES.includes(provider);
+    const isAllowed = allowedProviders.includes(provider) ||
+      (isWechatProvider && allowedProviders.some((item) => WECHAT_PROVIDER_NAMES.includes(item)));
+
+    if (!isAllowed) {
+      throw new BadRequestException('该应用未开启当前第三方登录方式');
+    }
+
+    return application;
+  }
+
+  private async getWechatMiniProviderRecord(requireEnabled = false) {
+    const provider = await this.prismaService.socialProvider.findUnique({
+      where: { name: 'wechat-mini' },
+    });
+
+    if (!provider) {
+      if (requireEnabled) {
+        throw new BadRequestException('微信扫码登录未配置，请先在后台系统设置中初始化并启用微信');
+      }
+      return null;
+    }
+
+    if (requireEnabled && !provider.enabled) {
+      throw new BadRequestException('微信扫码登录未启用，请在后台开启微信');
+    }
+
+    return this.decryptProviderRecord(provider);
+  }
+
   private buildBindStateKey(state: string) {
     return `${SOCIAL_BIND_STATE_PREFIX}${state}`;
   }
 
   private buildLoginStateKey(state: string) {
     return `${SOCIAL_LOGIN_STATE_PREFIX}${state}`;
+  }
+
+  private buildLoginTicketKey(ticket: string) {
+    return `${SOCIAL_LOGIN_TICKET_PREFIX}${ticket}`;
+  }
+
+  async createLoginTicket(auth: Record<string, unknown>) {
+    const ticket = randomBytes(32).toString('base64url');
+    await this.prismaService.systemSetting.create({
+      data: {
+        key: this.buildLoginTicketKey(ticket),
+        value: JSON.stringify({
+          auth,
+          expiresAt: new Date(Date.now() + 2 * 60 * 1000).toISOString(),
+        }),
+      },
+    });
+    return ticket;
+  }
+
+  async redeemLoginTicket(ticket: string) {
+    const normalized = ticket?.trim();
+    if (!normalized) {
+      throw new BadRequestException('登录凭证无效');
+    }
+
+    const key = this.buildLoginTicketKey(normalized);
+    const setting = await this.prismaService.systemSetting.findUnique({
+      where: { key },
+    });
+
+    if (!setting) {
+      throw new BadRequestException('登录凭证无效或已过期');
+    }
+
+    await this.prismaService.systemSetting.delete({ where: { key } });
+
+    try {
+      const payload = JSON.parse(setting.value) as {
+        auth?: Record<string, unknown>;
+        expiresAt?: string;
+      };
+      if (!payload.auth || !payload.expiresAt || new Date(payload.expiresAt).getTime() <= Date.now()) {
+        throw new BadRequestException('登录凭证无效或已过期');
+      }
+      return payload.auth;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('登录凭证无效或已过期');
+    }
   }
 
   private normalizeReturnTo(returnTo?: string) {
@@ -187,8 +794,14 @@ export class SocialAuthService {
   private toApiBinding(account: {
     id: string;
     provider: string;
+    providerAppId?: string | null;
     providerUserId: string;
+    openid?: string | null;
+    unionid?: string | null;
+    nickname?: string | null;
+    avatar?: string | null;
     profile: string;
+    lastLoginAt?: Date | null;
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -197,11 +810,15 @@ export class SocialAuthService {
     return {
       id: account.id,
       provider: account.provider,
+      providerAppId: account.providerAppId ?? null,
       providerUserId: account.providerUserId,
+      openid: account.openid ?? null,
+      unionid: account.unionid ?? null,
       username:
-        typeof profile.username === 'string' ? profile.username : null,
+        account.nickname ?? (typeof profile.username === 'string' ? profile.username : null),
       email: typeof profile.email === 'string' ? profile.email : null,
-      avatar: typeof profile.avatar === 'string' ? profile.avatar : null,
+      avatar: account.avatar ?? (typeof profile.avatar === 'string' ? profile.avatar : null),
+      lastLoginAt: account.lastLoginAt ?? null,
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
     };
@@ -209,6 +826,282 @@ export class SocialAuthService {
 
   private buildSocialFallbackEmail(provider: string, providerUserId: string) {
     return `${provider}_${providerUserId}@social.local`;
+  }
+
+  private buildAppOpenidProviderUserId(profile: SocialUserProfile) {
+    if (!profile.providerAppId?.trim() || !profile.openid?.trim()) {
+      return null;
+    }
+
+    return this.normalizeProviderUserId(
+      `${profile.providerAppId}.${profile.openid}`,
+    );
+  }
+
+  private buildCanonicalProviderUserId(
+    profile: SocialUserProfile,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    if (policy.identityStrategy === 'provider_user_id') {
+      return this.normalizeProviderUserId(profile.providerUserId);
+    }
+
+    if (policy.identityStrategy === 'unionid_only') {
+      if (!profile.unionid?.trim()) {
+        throw new BadRequestException(`${profile.provider} 未返回 unionid，无法按 unionid 统一身份`);
+      }
+      return this.normalizeProviderUserId(profile.unionid);
+    }
+
+    if (policy.identityStrategy === 'app_openid') {
+      const appOpenid = this.buildAppOpenidProviderUserId(profile);
+      if (!appOpenid) {
+        throw new BadRequestException(`${profile.provider} 未返回 AppID + openid，无法按应用 openid 识别身份`);
+      }
+      return appOpenid;
+    }
+
+    if (profile.unionid?.trim()) {
+      return this.normalizeProviderUserId(profile.unionid);
+    }
+
+    const appOpenid = this.buildAppOpenidProviderUserId(profile);
+    if (appOpenid) {
+      return appOpenid;
+    }
+
+    return this.normalizeProviderUserId(profile.providerUserId);
+  }
+
+  private buildSocialAccountProfile(
+    profile: SocialUserProfile,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    return {
+      provider: profile.provider,
+      providerUserId: this.buildCanonicalProviderUserId(profile, policy),
+      providerAppId: profile.providerAppId ?? null,
+      openid: profile.openid ?? null,
+      unionid: profile.unionid ?? null,
+      email: profile.email,
+      phone: profile.phone ?? null,
+      username: profile.username,
+      displayName: profile.displayName ?? profile.username,
+      avatar: profile.avatar,
+    };
+  }
+
+  private buildSocialAccountData(
+    profile: SocialUserProfile,
+    accessToken: string,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    const accountProfile = this.buildSocialAccountProfile(profile, policy);
+    const rawProfile = {
+      ...accountProfile,
+      raw: profile.rawProfile ?? null,
+    };
+
+    return {
+      provider: profile.provider,
+      providerAppId: profile.providerAppId ?? null,
+      providerUserId: accountProfile.providerUserId,
+      openid: profile.openid ?? null,
+      unionid: profile.unionid ?? null,
+      accessToken: accessToken ? this.secretService.encrypt(accessToken) : '',
+      refreshToken: null,
+      nickname: profile.displayName ?? profile.username,
+      avatar: profile.avatar,
+      profile: JSON.stringify(accountProfile),
+      rawProfile: JSON.stringify(rawProfile),
+      lastLoginAt: new Date(),
+    };
+  }
+
+  private async buildUserSocialLoginUpdate(
+    user: {
+      id: string;
+      email: string | null;
+      phone: string | null;
+      avatar: string | null;
+      displayName?: string | null;
+    },
+    profile: SocialUserProfile,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    const data: {
+      displayName?: string;
+      email?: string;
+      emailVerified?: boolean;
+      phone?: string;
+      avatar?: string;
+      lastLoginAt: Date;
+    } = {
+      lastLoginAt: new Date(),
+    };
+
+    if (policy.profileSyncMode === 'registration_only') {
+      return data;
+    }
+
+    const shouldOverwrite = policy.profileSyncMode === 'every_login';
+    const displayName = profile.displayName?.trim() || profile.username.trim();
+    if ((shouldOverwrite || !user.displayName) && displayName) {
+      data.displayName = displayName;
+    }
+
+    if ((shouldOverwrite || !user.avatar) && profile.avatar) {
+      data.avatar = profile.avatar;
+    }
+
+    if ((shouldOverwrite || !user.email) && profile.email) {
+      const existingEmailOwner = await this.prismaService.user.findUnique({
+        where: { email: profile.email },
+      });
+      if (!existingEmailOwner || existingEmailOwner.id === user.id) {
+        data.email = profile.email;
+        data.emailVerified = true;
+      }
+    }
+
+    if ((shouldOverwrite || !user.phone) && profile.phone) {
+      const existingPhoneOwner = await this.prismaService.user.findUnique({
+        where: { phone: profile.phone },
+      });
+      if (!existingPhoneOwner || existingPhoneOwner.id === user.id) {
+        data.phone = profile.phone;
+      }
+    }
+
+    return data;
+  }
+
+  private async updateUserAfterSocialLogin<T extends { id: string }>(
+    user: T & {
+      email: string | null;
+      phone: string | null;
+      avatar: string | null;
+      displayName?: string | null;
+    },
+    profile: SocialUserProfile,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    const data = await this.buildUserSocialLoginUpdate(user, profile, policy);
+    return this.prismaService.user.update({
+      where: { id: user.id },
+      data,
+    });
+  }
+
+  private async findSocialAccountByIdentity(
+    profile: SocialUserProfile,
+    policy = this.parseProviderPolicy(null),
+  ) {
+    const providerUserId = this.buildCanonicalProviderUserId(profile, policy);
+    const exact = await this.prismaService.socialAccount.findUnique({
+      where: {
+        provider_providerUserId: {
+          provider: profile.provider,
+          providerUserId,
+        },
+      },
+      include: { user: true },
+    });
+
+    if (exact) {
+      return exact;
+    }
+
+    const rawProviderUserId = this.normalizeProviderUserId(profile.providerUserId);
+    if (rawProviderUserId !== providerUserId) {
+      const byRawProviderUserId = await this.prismaService.socialAccount.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: profile.provider,
+            providerUserId: rawProviderUserId,
+          },
+        },
+        include: { user: true },
+      });
+      if (byRawProviderUserId) {
+        return byRawProviderUserId;
+      }
+    }
+
+    if (profile.unionid) {
+      const byUnionId = await this.prismaService.socialAccount.findFirst({
+        where: {
+          unionid: profile.unionid,
+        },
+        include: { user: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (byUnionId) {
+        return byUnionId;
+      }
+    }
+
+    if (profile.providerAppId && profile.openid) {
+      return this.prismaService.socialAccount.findFirst({
+        where: {
+          provider: profile.provider,
+          providerAppId: profile.providerAppId,
+          openid: profile.openid,
+        },
+        include: { user: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    return null;
+  }
+
+  private async upsertSocialAccountForUser(
+    userId: string,
+    profile: SocialUserProfile,
+    accessToken: string,
+    policy = this.parseProviderPolicy(null),
+    existingAccountId?: string | null,
+  ) {
+    const data = this.buildSocialAccountData(profile, accessToken, policy);
+    const existing = existingAccountId
+      ? await this.prismaService.socialAccount.findUnique({
+          where: { id: existingAccountId },
+        })
+      : await this.prismaService.socialAccount.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: data.provider,
+            providerUserId: data.providerUserId,
+          },
+        },
+      });
+
+    if (existing) {
+      return this.prismaService.socialAccount.update({
+        where: { id: existing.id },
+        data: {
+          userId,
+          providerAppId: data.providerAppId,
+          openid: data.openid,
+          unionid: data.unionid,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          nickname: data.nickname,
+          avatar: data.avatar,
+          profile: data.profile,
+          rawProfile: data.rawProfile,
+          lastLoginAt: data.lastLoginAt,
+        },
+      });
+    }
+
+    return this.prismaService.socialAccount.create({
+      data: {
+        userId,
+        ...data,
+      },
+    });
   }
 
   private async buildUniqueSocialUsername(username: string, provider: string) {
@@ -258,6 +1151,7 @@ export class SocialAuthService {
           profile.username,
           profile.provider,
         ),
+        displayName: profile.displayName ?? profile.username,
         avatar: profile.avatar,
         emailVerified: false,
         status: UserStatus.ACTIVE,
@@ -293,14 +1187,17 @@ export class SocialAuthService {
     provider: string,
     clientId?: string | null,
     redirectUri?: string | null,
+    extra?: Partial<PendingLoginState>,
+    stateOverride?: string,
   ) {
-    const state = randomBytes(24).toString('base64url');
+    const state = stateOverride ?? randomBytes(24).toString('base64url');
     const payload: PendingLoginState = {
       provider,
       clientId: clientId ?? null,
       redirectUri: redirectUri ?? null,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       status: 'pending',
+      ...extra,
     };
 
     await this.prismaService.systemSetting.create({
@@ -586,6 +1483,7 @@ export class SocialAuthService {
     clientId?: string | null,
     redirectUri?: string | null,
   ) {
+    await this.assertProviderAllowedForApplication(provider, clientId, redirectUri);
     const csrfState = await this.createPendingLoginState(provider, clientId, redirectUri);
     const authorization = await this.buildAuthorizePayload(
       provider,
@@ -598,6 +1496,483 @@ export class SocialAuthService {
       qrCodeUrl: authorization.qrCodeUrl ?? null,
       state: csrfState,
     };
+  }
+
+  private buildWechatMiniScene(state: string) {
+    return `s=${state}`;
+  }
+
+  private buildWechatMiniPath(
+    state: string,
+    providerRecord?: { redirectUri?: string | null },
+  ) {
+    const page = this.getWechatMiniLoginPage(providerRecord).replace(/^\//, '');
+    return `${page}?state=${encodeURIComponent(state)}`;
+  }
+
+  private buildWechatMiniQrFallback(state: string, scene: string, miniProgramPath: string): {
+    qrContent: string;
+    qrMode: Extract<WechatMiniQrMode, 'fallback' | 'platform'>;
+  } {
+    const template = this.configService.get<string>('WECHAT_MINI_PROGRAM_SCAN_URL_TEMPLATE')?.trim();
+    if (!template) {
+      return {
+        qrContent: miniProgramPath,
+        qrMode: 'fallback',
+      };
+    }
+
+    return {
+      qrContent: template
+        .replace(/\{state\}/g, encodeURIComponent(state))
+        .replace(/\{scene\}/g, encodeURIComponent(scene))
+        .replace(/\{path\}/g, encodeURIComponent(miniProgramPath))
+        .replace(/\{miniProgramPath\}/g, encodeURIComponent(miniProgramPath)),
+      qrMode: 'platform',
+    };
+  }
+
+  private async getWechatMiniAccessToken(
+    providerRecord?: Partial<SocialProviderRuntimeConfig>,
+  ) {
+    const appId = providerRecord?.clientId?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_APP_ID')?.trim();
+    const appSecret = providerRecord?.clientSecret?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_APP_SECRET')?.trim();
+
+    if (!appId || !appSecret) {
+      return null;
+    }
+
+    const params = new URLSearchParams({
+      grant_type: 'client_credential',
+      appid: appId,
+      secret: appSecret,
+    });
+    let response: Awaited<ReturnType<typeof fetch>>;
+    let data: {
+      access_token?: string;
+      errcode?: number;
+      errmsg?: string;
+    };
+
+    try {
+      response = await fetch(`https://api.weixin.qq.com/cgi-bin/token?${params.toString()}`);
+      data = await response.json() as typeof data;
+    } catch (error) {
+      throw new BadRequestException(
+        `获取微信 access_token 失败：${this.describeExternalError(error, '微信接口请求失败')}`,
+      );
+    }
+
+    if (!response.ok || data.errcode || !data.access_token) {
+      throw new BadRequestException(`获取微信 access_token 失败：${data.errmsg ?? response.statusText}`);
+    }
+
+    return data.access_token;
+  }
+
+  private async buildWechatMiniDynamicQrCode(
+    scene: string,
+    providerRecord?: Partial<SocialProviderRuntimeConfig>,
+  ) {
+    const accessToken = await this.getWechatMiniAccessToken(providerRecord);
+    if (!accessToken) {
+      return null;
+    }
+
+    const response = await fetch(
+      `https://api.weixin.qq.com/wxa/getwxacodeunlimit?access_token=${encodeURIComponent(accessToken)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scene,
+          page: this.getWechatMiniLoginPage(providerRecord).replace(/^\//, ''),
+          check_path: false,
+          env_version: this.getWechatMiniEnvVersion(),
+        }),
+      },
+    );
+    const contentType = response.headers.get('content-type') ?? '';
+    const bytes = Buffer.from(await response.arrayBuffer());
+
+    if (!response.ok || contentType.includes('application/json')) {
+      let message = response.statusText;
+      try {
+        const data = JSON.parse(bytes.toString('utf8')) as { errmsg?: string };
+        message = data.errmsg ?? message;
+      } catch {
+        // Keep the HTTP status text when WeChat does not return JSON.
+      }
+      throw new BadRequestException(`生成微信扫码二维码失败：${message}`);
+    }
+
+    return `data:${contentType || 'image/png'};base64,${bytes.toString('base64')}`;
+  }
+
+  private async buildWechatMiniQrCodeUrl(
+    scene: string,
+    providerRecord?: Partial<SocialProviderRuntimeConfig>,
+    fallbackMode: Extract<WechatMiniQrMode, 'fallback' | 'platform'> = 'fallback',
+  ) {
+    const policy = this.parseProviderPolicy(providerRecord);
+    if (policy.miniProgramUseDynamicCode) {
+      try {
+        const dynamicQrCode = await this.buildWechatMiniDynamicQrCode(scene, providerRecord);
+        if (dynamicQrCode) {
+          return {
+            qrCodeUrl: dynamicQrCode,
+            qrMode: 'dynamic' as const,
+          };
+        }
+      } catch (error) {
+        this.logger.warn(
+          `WeChat mini dynamic QR generation failed, falling back: ${this.describeExternalError(error, 'unknown error')}`,
+        );
+      }
+
+      const fixedQrImageUrl = this.getWechatMiniQrImageUrl(providerRecord);
+      if (fixedQrImageUrl) {
+        return {
+          qrCodeUrl: fixedQrImageUrl,
+          qrMode: 'fixed' as const,
+        };
+      }
+
+      return {
+        qrCodeUrl: null,
+        qrMode: fallbackMode,
+      };
+    }
+
+    const fixedQrImageUrl = this.getWechatMiniQrImageUrl(providerRecord);
+    if (fixedQrImageUrl) {
+      return {
+        qrCodeUrl: fixedQrImageUrl,
+        qrMode: 'fixed' as const,
+      };
+    }
+
+    return {
+      qrCodeUrl: null,
+      qrMode: fallbackMode,
+    };
+  }
+
+  async createWechatMiniLoginAuthorization(
+    clientId?: string | null,
+    redirectUri?: string | null,
+  ) {
+    await this.assertProviderAllowedForApplication('wechat-mini', clientId, redirectUri);
+
+    const foundProviderRecord = await this.getWechatMiniProviderRecord(true);
+    if (!foundProviderRecord) {
+      throw new BadRequestException('微信扫码登录未配置，请先在后台系统设置中初始化并启用微信');
+    }
+    const providerRecord = foundProviderRecord;
+    const state = randomBytes(12).toString('base64url');
+    const scene = this.buildWechatMiniScene(state);
+    const miniProgramPath = this.buildWechatMiniPath(state, providerRecord);
+    const fallback = this.buildWechatMiniQrFallback(state, scene, miniProgramPath);
+    const { qrCodeUrl, qrMode } = await this.buildWechatMiniQrCodeUrl(
+      scene,
+      providerRecord,
+      fallback.qrMode,
+    );
+    const qrContent = fallback.qrContent;
+
+    await this.createPendingLoginState(
+      'wechat-mini',
+      clientId,
+      redirectUri,
+      {
+        miniProgramPath,
+        scene,
+      },
+      state,
+    );
+
+    return {
+      state,
+      miniProgramPath,
+      scene,
+      qrCodeUrl,
+      qrMode,
+      qrContent,
+      expiresIn: 10 * 60,
+    };
+  }
+
+  private pickProfileString(
+    payload: WechatMiniLoginConfirmPayload,
+    keys: string[],
+  ) {
+    for (const key of keys) {
+      const direct = payload[key as keyof WechatMiniLoginConfirmPayload];
+      if (typeof direct === 'string' && direct.trim()) {
+        return direct.trim();
+      }
+
+      const nested = payload.profile?.[key];
+      if (typeof nested === 'string' && nested.trim()) {
+        return nested.trim();
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeProviderUserId(providerUserId: string) {
+    return providerUserId
+      .trim()
+      .replace(/[^\w.-]+/g, '_')
+      .slice(0, 128);
+  }
+
+  private async exchangeWechatMiniSession(
+    jsCode?: string,
+    providerRecord?: Partial<SocialProviderRuntimeConfig>,
+  ) {
+    const appId = providerRecord?.clientId?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_APP_ID')?.trim();
+    const appSecret = providerRecord?.clientSecret?.trim()
+      || this.configService.get<string>('WECHAT_MINI_PROGRAM_APP_SECRET')?.trim();
+
+    if (!appId || !appSecret || !jsCode?.trim()) {
+      return null;
+    }
+
+    const params = new URLSearchParams({
+      appid: appId,
+      secret: appSecret,
+      js_code: jsCode,
+      grant_type: 'authorization_code',
+    });
+    let response: Awaited<ReturnType<typeof fetch>>;
+    let data: {
+      openid?: string;
+      unionid?: string;
+      session_key?: string;
+      errcode?: number;
+      errmsg?: string;
+    };
+
+    try {
+      response = await fetch(`https://api.weixin.qq.com/sns/jscode2session?${params.toString()}`);
+      data = await response.json() as typeof data;
+    } catch (error) {
+      throw new BadRequestException(
+        `微信登录校验失败：${this.describeExternalError(error, '微信接口请求失败')}`,
+      );
+    }
+
+    if (!response.ok || data.errcode || !data.openid) {
+      throw new BadRequestException(`微信登录校验失败：${data.errmsg ?? response.statusText}`);
+    }
+
+    return {
+      openid: data.openid,
+      unionid: data.unionid,
+      sessionKey: data.session_key,
+    } satisfies WechatMiniSessionIdentity;
+  }
+
+  private async resolveWechatMiniIdentity(
+    payload: WechatMiniLoginConfirmPayload,
+    providerRecord: Partial<SocialProviderRuntimeConfig>,
+    policy: SocialProviderPolicy,
+  ) {
+    if (policy.miniProgramSubmitFields.includes('jsCode') && !payload.jsCode?.trim()) {
+      throw new BadRequestException('微信登录凭证 jsCode 为必填项');
+    }
+
+    const identity = await this.exchangeWechatMiniSession(payload.jsCode, providerRecord);
+    if (identity) {
+      return identity;
+    }
+
+    const insecureId = [payload.unionid, payload.openid, payload.providerUserId]
+      .find((value) => typeof value === 'string' && value.trim());
+    const allowInsecureIdentity =
+      this.isWechatMiniInsecureIdentityAllowed() ||
+      this.configService.get<string>('NODE_ENV') !== 'production';
+
+    if (allowInsecureIdentity && insecureId?.trim()) {
+      return {
+        openid: this.normalizeProviderUserId(insecureId),
+        unionid: payload.unionid
+          ? this.normalizeProviderUserId(payload.unionid)
+          : undefined,
+      } satisfies WechatMiniSessionIdentity;
+    }
+
+    throw new BadRequestException('未配置微信 AppID/AppSecret，无法校验微信登录凭证');
+  }
+
+  private assertWechatMiniSubmitFields(
+    payload: WechatMiniLoginConfirmPayload,
+    policy: SocialProviderPolicy,
+  ) {
+    const aliases: Record<string, string[]> = {
+      jsCode: ['jsCode'],
+      nickname: ['nickname', 'nickName'],
+      nickName: ['nickName', 'nickname'],
+      avatar: ['avatar', 'avatarUrl'],
+      avatarUrl: ['avatarUrl', 'avatar'],
+      openid: ['openid'],
+      unionid: ['unionid'],
+      providerUserId: ['providerUserId'],
+    };
+
+    for (const field of policy.miniProgramSubmitFields) {
+      const keys = aliases[field] ?? [field];
+      const value = this.pickProfileString(payload, keys);
+      if (!value && field !== 'profile') {
+        throw new BadRequestException(`微信确认登录缺少字段：${field}`);
+      }
+    }
+  }
+
+  private async buildWechatMiniSocialProfile(
+    payload: WechatMiniLoginConfirmPayload,
+    providerRecord: SocialProviderRuntimeConfig,
+    policy: SocialProviderPolicy,
+  ): Promise<SocialUserProfile> {
+    this.assertWechatMiniSubmitFields(payload, policy);
+    const identity = await this.resolveWechatMiniIdentity(payload, providerRecord, policy);
+    const providerUserId = this.normalizeProviderUserId(
+      identity.unionid ?? identity.openid,
+    );
+    const nickname = this.pickProfileString(payload, ['nickName', 'nickname'])
+      ?? `wx_${providerUserId.slice(0, 8)}`;
+    const avatar = this.pickProfileString(payload, ['avatarUrl', 'avatar']);
+
+    return {
+      provider: 'wechat-mini',
+      providerUserId,
+      providerAppId: providerRecord.clientId || null,
+      openid: identity.openid,
+      unionid: identity.unionid ?? null,
+      email: null,
+      username: await this.buildUniqueSocialUsername(nickname, 'wechat-mini'),
+      displayName: nickname,
+      avatar,
+      rawProfile: {
+        jsCode: payload.jsCode ? '[redacted]' : undefined,
+        providerUserId: payload.providerUserId,
+        openid: payload.openid,
+        unionid: payload.unionid,
+        nickName: payload.nickName,
+        nickname: payload.nickname,
+        avatarUrl: payload.avatarUrl,
+        avatar: payload.avatar,
+        profile: payload.profile ?? null,
+      },
+    };
+  }
+
+  async confirmWechatMiniLogin(payload: WechatMiniLoginConfirmPayload) {
+    const pendingLoginState = await this.getPendingLoginState(payload.state);
+    const pendingBindState = pendingLoginState
+      ? null
+      : await this.consumePendingBindState(payload.state);
+
+    if (
+      (!pendingLoginState || pendingLoginState.provider !== 'wechat-mini') &&
+      (!pendingBindState || pendingBindState.provider !== 'wechat-mini')
+    ) {
+      throw new BadRequestException('微信扫码会话已过期，请重新发起');
+    }
+
+    try {
+      const foundProviderRecord = await this.getWechatMiniProviderRecord(true);
+      if (!foundProviderRecord) {
+        throw new BadRequestException('微信扫码登录未配置，请先在后台系统设置中初始化并启用微信');
+      }
+      const providerRecord = foundProviderRecord;
+      const policy = this.parseProviderPolicy(providerRecord);
+      const socialProfile = await this.buildWechatMiniSocialProfile(
+        payload,
+          providerRecord,
+          policy,
+        );
+
+      if (pendingBindState) {
+        const binding = await this.bindAccountToUser(
+          pendingBindState.userId,
+          socialProfile,
+          '',
+          policy,
+        );
+        await this.markPendingBindStateCompleted(payload.state, binding.id);
+        return {
+          success: true,
+          status: 'completed' as const,
+          binding,
+        };
+      }
+
+      if (!pendingLoginState) {
+        throw new BadRequestException('扫码登录会话已过期，请重新发起登录');
+      }
+
+      const user = await this.findOrCreateUser(socialProfile, '', {
+        clientId: pendingLoginState.clientId,
+        redirectUri: pendingLoginState.redirectUri,
+      }, policy, {
+        autoCreateUnboundUser: true,
+      });
+      const tokens = await this.authService.issueTokensForUser({
+        user,
+        scopes: ['profile', 'email'],
+      });
+      const response = {
+        ...tokens,
+        user: this.userService.toApiUser(user),
+      };
+
+      await this.updatePendingLoginState(payload.state, {
+        status: 'completed',
+        authTicket: await this.createLoginTicket(response),
+        auth: undefined,
+        completedAt: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        status: 'completed' as const,
+        user: response.user,
+      };
+    } catch (error) {
+      const message =
+        error instanceof SocialBindRequiredError
+          ? '该微信账号尚未绑定用户，请先在账号中心或联系管理员完成绑定'
+          : error instanceof Error
+            ? error.message
+            : '微信扫码登录失败';
+
+      const completedAt = new Date().toISOString();
+      if (pendingLoginState) {
+        await this.updatePendingLoginState(payload.state, {
+          status: 'failed',
+          error: message,
+          completedAt,
+        });
+      } else if (pendingBindState) {
+        await this.updatePendingBindState(payload.state, {
+          status: 'failed',
+          error: message,
+          completedAt,
+        });
+      }
+
+      if (error instanceof SocialBindRequiredError) {
+        throw new BadRequestException(message);
+      }
+
+      throw error;
+    }
   }
 
   async getLoginAuthorizationStatus(state: string) {
@@ -622,7 +1997,12 @@ export class SocialAuthService {
       return {
         status: payload.status ?? 'pending',
         provider: payload.provider,
-        auth: payload.auth ?? null,
+        ticket: payload.authTicket ?? (
+          payload.status === 'completed' && payload.auth
+            ? await this.createLoginTicket(payload.auth)
+            : null
+        ),
+        auth: null,
         error: payload.error ?? null,
         completedAt: payload.completedAt ?? null,
         scannedAt: payload.scannedAt ?? null,
@@ -632,12 +2012,65 @@ export class SocialAuthService {
     }
   }
 
-  private getProviderEndpoints(provider: string): ProviderEndpoints {
+  private getProviderEndpoints(
+    provider: string,
+    providerRecord?: Partial<SocialProviderRuntimeConfig> | null,
+  ): ProviderEndpoints {
     const config = PROVIDER_CONFIGS[provider];
-    if (!config) {
-      throw new BadRequestException(`不支持的第三方登录方式：${provider}`);
+
+    if (config) {
+      return {
+        ...config,
+        authorizeUrl: providerRecord?.authUrl?.trim() || config.authorizeUrl,
+        tokenUrl: providerRecord?.tokenUrl?.trim() || config.tokenUrl,
+        userInfoUrl: providerRecord?.userInfoUrl?.trim() || config.userInfoUrl,
+      };
     }
-    return config;
+
+    const authorizeUrl = providerRecord?.authUrl?.trim();
+    const tokenUrl = providerRecord?.tokenUrl?.trim();
+    const userInfoUrl = providerRecord?.userInfoUrl?.trim();
+    if (!authorizeUrl || !tokenUrl || !userInfoUrl) {
+      throw new BadRequestException(`第三方登录 ${provider} 未配置授权、Token 或用户信息地址`);
+    }
+
+    return {
+      authorizeUrl,
+      tokenUrl,
+      userInfoUrl,
+      scope: 'openid profile email',
+      tokenMethod: 'POST',
+      tokenContentType: 'application/x-www-form-urlencoded',
+      parseTokenResponse: (body) => {
+        try {
+          const data = JSON.parse(body) as {
+            access_token?: string;
+            accessToken?: string;
+            openid?: string;
+            open_id?: string;
+            errcode?: number;
+            errmsg?: string;
+            error?: string;
+            error_description?: string;
+          };
+          if (data.errcode || data.error) {
+            throw new Error(data.errmsg ?? data.error_description ?? data.error ?? 'token error');
+          }
+          const accessToken = data.access_token ?? data.accessToken;
+          if (!accessToken) {
+            throw new Error('Failed to parse OAuth token response');
+          }
+          return { accessToken, openid: data.openid ?? data.open_id };
+        } catch {
+          const params = new URLSearchParams(body);
+          const accessToken = params.get('access_token') ?? params.get('accessToken');
+          if (!accessToken) {
+            throw new Error('Failed to parse OAuth token response');
+          }
+          return { accessToken, openid: params.get('openid') ?? params.get('open_id') ?? undefined };
+        }
+      },
+    };
   }
 
   async listBindings(userId: string) {
@@ -649,11 +2082,45 @@ export class SocialAuthService {
     return accounts.map((account) => this.toApiBinding(account));
   }
 
+  private async createWechatMiniBindAuthorization(userId: string, returnTo?: string) {
+    const foundProviderRecord = await this.getWechatMiniProviderRecord(true);
+    if (!foundProviderRecord) {
+      throw new BadRequestException('微信扫码绑定未配置，请先在后台系统设置中初始化并启用微信');
+    }
+
+    const providerRecord = foundProviderRecord;
+    const state = await this.createPendingBindState(userId, 'wechat-mini', returnTo);
+    const scene = this.buildWechatMiniScene(state);
+    const miniProgramPath = this.buildWechatMiniPath(state, providerRecord);
+    const fallback = this.buildWechatMiniQrFallback(state, scene, miniProgramPath);
+    const { qrCodeUrl, qrMode } = await this.buildWechatMiniQrCodeUrl(
+      scene,
+      providerRecord,
+      fallback.qrMode,
+    );
+    const qrContent = fallback.qrContent;
+
+    return {
+      authorizeUrl: qrContent,
+      qrCodeUrl,
+      state,
+      miniProgramPath,
+      scene,
+      qrMode,
+      qrContent,
+      expiresIn: 10 * 60,
+    };
+  }
+
   async createBindAuthorization(
     userId: string,
     provider: string,
     returnTo?: string,
   ) {
+    if (provider === 'wechat-mini') {
+      return this.createWechatMiniBindAuthorization(userId, returnTo);
+    }
+
     const csrfState = await this.createPendingBindState(userId, provider, returnTo);
     const authorization = await this.buildAuthorizePayload(
       provider,
@@ -729,14 +2196,14 @@ export class SocialAuthService {
   }
 
   private async buildAggregatedAuthorizeRedirect(
-    providerRecord: { clientId: string; clientSecret: string; apiUrl: string | null },
+    providerRecord: SocialProviderRuntimeConfig,
     providerName: string,
     callbackPath: string,
     state?: string,
   ) {
     const apiUrl = (providerRecord.apiUrl || 'https://u.cccyun.cc/').replace(/\/+$/, '');
     const subType = this.getAggregatedSubType(providerName);
-    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
+    const redirectUri = this.resolveOAuthRedirectUri(providerRecord, callbackPath);
 
     const params = new URLSearchParams({
       act: 'login',
@@ -760,14 +2227,14 @@ export class SocialAuthService {
   }
 
   private async buildAggregatedAuthorizePayload(
-    providerRecord: { clientId: string; clientSecret: string; apiUrl: string | null },
+    providerRecord: SocialProviderRuntimeConfig,
     providerName: string,
     callbackPath: string,
     state?: string,
   ): Promise<AuthorizationPayload> {
     const apiUrl = (providerRecord.apiUrl || 'https://u.cccyun.cc/').replace(/\/+$/, '');
     const subType = this.getAggregatedSubType(providerName);
-    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
+    const redirectUri = this.resolveOAuthRedirectUri(providerRecord, callbackPath);
 
     const params = new URLSearchParams({
       act: 'login',
@@ -828,7 +2295,7 @@ export class SocialAuthService {
   }
 
   private async handleAggregatedCallback(
-    providerRecord: { name: string; clientId: string; clientSecret: string; apiUrl: string | null },
+    providerRecord: SocialProviderRuntimeConfig,
     code: string,
   ): Promise<SocialUserProfile> {
     const apiUrl = (providerRecord.apiUrl || 'https://u.cccyun.cc/').replace(/\/+$/, '');
@@ -859,12 +2326,22 @@ export class SocialAuthService {
     };
     const providerLabel = subTypeToProvider[subType] ?? subType;
 
+    const policy = this.parseProviderPolicy(providerRecord);
+    if (Object.keys(policy.fieldMapping).length > 0) {
+      return this.buildMappedSocialProfile(providerLabel, data, policy.fieldMapping, {
+        providerAppId: providerRecord.clientId,
+        email: null,
+      });
+    }
+
     return {
       provider: providerLabel,
       providerUserId: data.social_uid,
+      providerAppId: providerRecord.clientId,
       email: null,
       username: data.nickname || `${providerLabel}_${data.social_uid.slice(0, 8)}`,
       avatar: data.faceimg || null,
+      rawProfile: data,
     };
   }
 
@@ -874,13 +2351,15 @@ export class SocialAuthService {
   }
 
   private async buildAuthorizePayload(provider: string, callbackPath: string, state?: string): Promise<AuthorizationPayload> {
-    const providerRecord = await this.prismaService.socialProvider.findUnique({
+    const foundProviderRecord = await this.prismaService.socialProvider.findUnique({
       where: { name: provider },
     });
 
-    if (!providerRecord) {
+    if (!foundProviderRecord) {
       throw new BadRequestException(`第三方登录 ${provider} 不存在，请在后台添加`);
     }
+
+    const providerRecord = this.decryptProviderRecord(foundProviderRecord);
 
     if (!providerRecord.enabled) {
       throw new BadRequestException(`第三方登录 ${provider} 未启用，请在后台开启`);
@@ -894,8 +2373,8 @@ export class SocialAuthService {
       return this.buildAggregatedAuthorizePayload(providerRecord, provider, callbackPath, state);
     }
 
-    const endpoints = this.getProviderEndpoints(provider);
-    const redirectUri = `${this.getOAuthCallbackBaseUrl()}${callbackPath}`;
+    const endpoints = this.getProviderEndpoints(provider, providerRecord);
+    const redirectUri = this.resolveOAuthRedirectUri(providerRecord, callbackPath);
     const scopes = providerRecord.scopes
       ? JSON.parse(providerRecord.scopes) as string[]
       : [endpoints.scope];
@@ -929,18 +2408,33 @@ export class SocialAuthService {
     code: string,
     state?: string,
     appContext?: SocialLoginApplicationContext,
+    securityContext?: SocialCallbackSecurityContext,
   ) {
-    const providerRecord = await this.prismaService.socialProvider.findUnique({
+    const foundProviderRecord = await this.prismaService.socialProvider.findUnique({
       where: { name: provider },
     });
 
-    if (!providerRecord) {
+    if (!foundProviderRecord) {
       throw new BadRequestException(`第三方登录 ${provider} 不存在`);
     }
+
+    const providerRecord = this.decryptProviderRecord(foundProviderRecord);
 
     if (!providerRecord.enabled) {
       throw new BadRequestException(`第三方登录 ${provider} 未启用，请在后台开启`);
     }
+
+    this.validateCallbackSecurity(providerRecord, securityContext);
+
+    if (appContext?.clientId || appContext?.redirectUri) {
+      await this.assertProviderAllowedForApplication(
+        provider,
+        appContext.clientId,
+        appContext.redirectUri,
+      );
+    }
+
+    const policy = this.parseProviderPolicy(providerRecord);
 
     // Aggregated login path
     if (providerRecord.type === 'aggregated') {
@@ -951,7 +2445,12 @@ export class SocialAuthService {
         if (pendingBindState.provider !== provider || !pendingBindState.userId) {
           throw new BadRequestException('第三方绑定状态无效');
         }
-        const binding = await this.bindAccountToUser(pendingBindState.userId, socialProfile, '');
+        const binding = await this.bindAccountToUser(
+          pendingBindState.userId,
+          socialProfile,
+          '',
+          policy,
+        );
         await this.markPendingBindStateCompleted(state, binding.id);
         return { mode: 'bind' as const, provider, returnTo: pendingBindState.returnTo, binding };
       }
@@ -963,9 +2462,14 @@ export class SocialAuthService {
             redirectUri: pendingLoginState.redirectUri,
           }
         : appContext;
-      let user: Awaited<ReturnType<typeof this.findOrCreateUser>>;
+      let user: User;
       try {
-        user = await this.findOrCreateUser(socialProfile, '', registrationContext);
+        user = await this.findOrCreateUser(
+          socialProfile,
+          '',
+          registrationContext,
+          policy,
+        );
       } catch (error) {
         if (pendingLoginState) {
           const message =
@@ -992,7 +2496,8 @@ export class SocialAuthService {
       if (pendingLoginState) {
         await this.updatePendingLoginState(state, {
           status: 'completed',
-          auth: response,
+          authTicket: await this.createLoginTicket(response),
+          auth: undefined,
           completedAt: new Date().toISOString(),
         });
         return { mode: 'qr_login' as const, provider };
@@ -1001,8 +2506,11 @@ export class SocialAuthService {
       return { mode: 'login' as const, ...response };
     }
 
-    const endpoints = this.getProviderEndpoints(provider);
-    const redirectUri = `${this.getOAuthCallbackBaseUrl()}/api/auth/callback`;
+    const endpoints = this.getProviderEndpoints(provider, providerRecord);
+    const callbackPath = appContext?.clientId && appContext.redirectUri
+      ? `/api/auth/callback?client_id=${encodeURIComponent(appContext.clientId)}&redirect_uri=${encodeURIComponent(appContext.redirectUri)}`
+      : '/api/auth/callback';
+    const redirectUri = this.resolveOAuthRedirectUri(providerRecord, callbackPath);
 
     // 1. Exchange code for access token
     const tokenResult = await this.exchangeCodeForToken(
@@ -1036,6 +2544,8 @@ export class SocialAuthService {
       tokenResult.accessToken,
       openid,
       providerRecord.clientId,
+      providerRecord,
+      policy,
     );
 
     const pendingBindState = await this.consumePendingBindState(state);
@@ -1053,6 +2563,7 @@ export class SocialAuthService {
         pendingBindState.userId,
         socialProfile,
         tokenResult.accessToken,
+        policy,
       );
       await this.markPendingBindStateCompleted(state, binding.id);
 
@@ -1071,12 +2582,13 @@ export class SocialAuthService {
           redirectUri: pendingLoginState.redirectUri,
         }
       : appContext;
-    let user: Awaited<ReturnType<typeof this.findOrCreateUser>>;
+    let user: User;
     try {
       user = await this.findOrCreateUser(
         socialProfile,
         tokenResult.accessToken,
         registrationContext,
+        policy,
       );
     } catch (error) {
       if (pendingLoginState) {
@@ -1111,7 +2623,8 @@ export class SocialAuthService {
     if (pendingLoginState) {
       await this.updatePendingLoginState(state, {
         status: 'completed',
-        auth: response,
+        authTicket: await this.createLoginTicket(response),
+        auth: undefined,
         completedAt: new Date().toISOString(),
       });
       return { mode: 'qr_login' as const, provider };
@@ -1200,6 +2713,8 @@ export class SocialAuthService {
     accessToken: string,
     openid?: string,
     clientId?: string,
+    providerRecord?: Partial<SocialProviderRuntimeConfig>,
+    policy = this.parseProviderPolicy(providerRecord),
   ): Promise<SocialUserProfile> {
     if (provider === 'github') {
       const resp = await fetch(endpoints.userInfoUrl, {
@@ -1212,6 +2727,7 @@ export class SocialAuthService {
       const data = await resp.json() as {
         id: number;
         login: string;
+        name?: string | null;
         email: string | null;
         avatar_url: string | null;
       };
@@ -1234,9 +2750,12 @@ export class SocialAuthService {
       return {
         provider: 'github',
         providerUserId: String(data.id),
+        providerAppId: clientId ?? null,
         email,
         username: data.login,
+        displayName: data.name ?? data.login,
         avatar: data.avatar_url,
+        rawProfile: data,
       };
     }
 
@@ -1254,9 +2773,12 @@ export class SocialAuthService {
       return {
         provider: 'google',
         providerUserId: data.sub,
+        providerAppId: clientId ?? null,
         email: data.email,
         username: data.name || data.email.split('@')[0],
+        displayName: data.name || data.email.split('@')[0],
         avatar: data.picture,
+        rawProfile: data,
       };
     }
 
@@ -1282,9 +2804,14 @@ export class SocialAuthService {
       return {
         provider: 'wechat',
         providerUserId: data.unionid ?? data.openid,
+        providerAppId: clientId ?? null,
+        openid: data.openid,
+        unionid: data.unionid ?? null,
         email: null,
         username: data.nickname || `wx_${data.openid.slice(0, 8)}`,
+        displayName: data.nickname || `wx_${data.openid.slice(0, 8)}`,
         avatar: data.headimgurl,
+        rawProfile: data,
       };
     }
 
@@ -1309,19 +2836,34 @@ export class SocialAuthService {
       return {
         provider: 'qq',
         providerUserId: openid,
+        providerAppId: clientId ?? null,
+        openid,
         email: null,
         username: data.nickname || `qq_${openid.slice(0, 8)}`,
+        displayName: data.nickname || `qq_${openid.slice(0, 8)}`,
         avatar: data.figureurl_qq,
+        rawProfile: data,
       };
     }
 
-    throw new BadRequestException(`不支持的第三方登录方式：${provider}`);
+    const resp = await fetch(endpoints.userInfoUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const data = await resp.json() as Record<string, unknown>;
+    return this.buildMappedSocialProfile(provider, data, policy.fieldMapping, {
+      providerAppId: clientId ?? null,
+      openid: openid ?? null,
+    });
   }
 
   private async bindAccountToUser(
     userId: string,
     profile: SocialUserProfile,
     accessToken: string,
+    policy = this.parseProviderPolicy(null),
   ) {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
@@ -1338,18 +2880,12 @@ export class SocialAuthService {
       },
     });
 
-    const socialAccount = await this.prismaService.socialAccount.findUnique({
-      where: {
-        provider_providerUserId: {
-          provider: profile.provider,
-          providerUserId: profile.providerUserId,
-        },
-      },
-    });
+    const socialAccount = await this.findSocialAccountByIdentity(profile, policy);
+    const providerUserId = this.buildCanonicalProviderUserId(profile, policy);
 
     if (
       userProviderBinding &&
-      userProviderBinding.providerUserId !== profile.providerUserId
+      userProviderBinding.providerUserId !== providerUserId
     ) {
       throw new BadRequestException(`当前账号已绑定 ${profile.provider}，请先解绑`);
     }
@@ -1368,9 +2904,8 @@ export class SocialAuthService {
       const transferredAccount = await this.prismaService.socialAccount.update({
         where: { id: socialAccount.id },
         data: {
+          ...this.buildSocialAccountData(profile, accessToken, policy),
           userId,
-          accessToken,
-          profile: JSON.stringify(profile),
         },
       });
       return this.toApiBinding(transferredAccount);
@@ -1380,24 +2915,17 @@ export class SocialAuthService {
       // Already bound to same user → update token
       const updatedAccount = await this.prismaService.socialAccount.update({
         where: { id: socialAccount.id },
-        data: {
-          accessToken,
-          profile: JSON.stringify(profile),
-        },
+        data: this.buildSocialAccountData(profile, accessToken, policy),
       });
       return this.toApiBinding(updatedAccount);
     }
 
-    // New binding
-    const createdAccount = await this.prismaService.socialAccount.create({
-      data: {
-        userId,
-        provider: profile.provider,
-        providerUserId: profile.providerUserId,
-        accessToken,
-        profile: JSON.stringify(profile),
-      },
-    });
+    const createdAccount = await this.upsertSocialAccountForUser(
+      userId,
+      profile,
+      accessToken,
+      policy,
+    );
     return this.toApiBinding(createdAccount);
   }
 
@@ -1405,11 +2933,8 @@ export class SocialAuthService {
     appContext?: SocialLoginApplicationContext,
   ) {
     const authConfig = await this.authService.getAuthConfig();
-    if (authConfig.publicApiEnabled) {
-      return {
-        allowed: true,
-        registerClientId: appContext?.clientId ?? null,
-      };
+    if (!appContext?.clientId && authConfig.publicApiEnabled) {
+      return { allowed: true, registerClientId: null };
     }
 
     if (!appContext?.clientId || !appContext?.redirectUri) {
@@ -1431,33 +2956,26 @@ export class SocialAuthService {
     profile: SocialUserProfile,
     accessToken: string,
     appContext?: SocialLoginApplicationContext,
+    policy = this.parseProviderPolicy(null),
+    options: SocialUserResolutionOptions = {},
   ) {
-    // 1. Check if social account already exists
-    const socialAccount = await this.prismaService.socialAccount.findUnique({
-      where: {
-        provider_providerUserId: {
-          provider: profile.provider,
-          providerUserId: profile.providerUserId,
-        },
-      },
-      include: { user: true },
-    });
+    const providerUserId = this.buildCanonicalProviderUserId(profile, policy);
+    const socialAccount = await this.findSocialAccountByIdentity(profile, policy);
 
     if (socialAccount) {
       if (socialAccount.user.status !== UserStatus.ACTIVE) {
         throw new UnauthorizedException('用户账号已被禁用');
       }
 
-      // Update access token
-      await this.prismaService.socialAccount.update({
-        where: { id: socialAccount.id },
-        data: {
-          accessToken,
-          profile: JSON.stringify(profile),
-        },
-      });
+      await this.upsertSocialAccountForUser(
+        socialAccount.userId,
+        profile,
+        accessToken,
+        policy,
+        socialAccount.id,
+      );
 
-      return socialAccount.user;
+      return this.updateUserAfterSocialLogin(socialAccount.user, profile, policy);
     }
 
     // 2. Try to find existing user by email
@@ -1467,17 +2985,13 @@ export class SocialAuthService {
       });
 
       if (existingUser) {
-        // Link social account to existing user
-        await this.prismaService.socialAccount.create({
-          data: {
-            userId: existingUser.id,
-            provider: profile.provider,
-            providerUserId: profile.providerUserId,
-            accessToken,
-            profile: JSON.stringify(profile),
-          },
-        });
-        return existingUser;
+        await this.upsertSocialAccountForUser(
+          existingUser.id,
+          profile,
+          accessToken,
+          policy,
+        );
+        return this.updateUserAfterSocialLogin(existingUser, profile, policy);
       }
     }
 
@@ -1485,26 +2999,37 @@ export class SocialAuthService {
     // are restored to a placeholder user so they can still log in independently.
     const fallbackEmail = this.buildSocialFallbackEmail(
       profile.provider,
-      profile.providerUserId,
+      providerUserId,
     );
-    const existingByFallback = await this.prismaService.user.findUnique({
-      where: { email: fallbackEmail },
+    const legacyFallbackEmail = this.buildSocialFallbackEmail(
+      profile.provider,
+      this.normalizeProviderUserId(profile.providerUserId),
+    );
+    const existingByFallback = await this.prismaService.user.findFirst({
+      where: {
+        email: {
+          in: fallbackEmail === legacyFallbackEmail
+            ? [fallbackEmail]
+            : [fallbackEmail, legacyFallbackEmail],
+        },
+      },
     });
     if (existingByFallback) {
-      await this.prismaService.socialAccount.create({
-        data: {
-          userId: existingByFallback.id,
-          provider: profile.provider,
-          providerUserId: profile.providerUserId,
-          accessToken,
-          profile: JSON.stringify(profile),
-        },
-      });
-      return existingByFallback;
+      await this.upsertSocialAccountForUser(
+        existingByFallback.id,
+        profile,
+        accessToken,
+        policy,
+      );
+      return this.updateUserAfterSocialLogin(existingByFallback, profile, policy);
     }
 
     // 4. Check whether global or current OAuth application registration allows creating a user.
-    const registrationPolicy = await this.resolveSocialRegistrationPolicy(appContext);
+    // WeChat Mini Program scan login can be configured as a pure identity login:
+    // verified WeChat identity creates a standalone SSO user without manual binding.
+    const registrationPolicy = options.autoCreateUnboundUser
+      ? { allowed: true, registerClientId: appContext?.clientId ?? null }
+      : await this.resolveSocialRegistrationPolicy(appContext);
     if (!registrationPolicy.allowed) {
       throw new SocialBindRequiredError(profile);
     }
@@ -1514,6 +3039,7 @@ export class SocialAuthService {
       data: {
         email: profile.email ?? fallbackEmail,
         username: profile.username,
+        displayName: profile.displayName ?? profile.username,
         avatar: profile.avatar,
         emailVerified: !!profile.email,
         status: UserStatus.ACTIVE,
@@ -1523,15 +3049,7 @@ export class SocialAuthService {
     });
 
     // Create social account link
-    await this.prismaService.socialAccount.create({
-      data: {
-        userId: user.id,
-        provider: profile.provider,
-        providerUserId: profile.providerUserId,
-        accessToken,
-        profile: JSON.stringify(profile),
-      },
-    });
+    await this.upsertSocialAccountForUser(user.id, profile, accessToken, policy);
 
     return user;
   }

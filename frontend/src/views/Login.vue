@@ -10,9 +10,11 @@ import { createAuthorizeQrDataUrl, createQrDisplayUrl } from '../utils/qrcode'
 import type { AuthorizeContext } from '../types/api'
 import StatusTag from '../components/StatusTag.vue'
 import Icon from '../components/Icon.vue'
+import { foldWechatProviders, resolveRuntimeProviderName } from '../utils/socialProviders'
 
 type AuthMode = 'password' | 'email' | 'register' | 'reset' | 'authorize' | 'restricted'
 type HttpLikeError = { message?: string; response?: { status?: number } }
+type QrDialogStatus = 'idle' | 'pending' | 'scanned' | 'success' | 'failed' | 'expired'
 
 const route = useRoute()
 const router = useRouter()
@@ -26,9 +28,17 @@ const socialQrProvider = ref('')
 const socialQrUrl = ref('')
 const socialQrDisplayUrl = ref('')
 const socialQrState = ref('')
-const socialQrStatus = ref<'idle' | 'pending' | 'success' | 'failed' | 'expired'>('idle')
+const socialQrStatus = ref<QrDialogStatus>('idle')
 const socialQrMessage = ref('')
 let socialQrTimer: ReturnType<typeof setInterval> | null = null
+const wechatMiniVisible = ref(false)
+const wechatMiniDisplayUrl = ref('')
+const wechatMiniQrContent = ref('')
+const wechatMiniState = ref('')
+const wechatMiniPath = ref('')
+const wechatMiniStatus = ref<QrDialogStatus>('idle')
+const wechatMiniMessage = ref('')
+let wechatMiniTimer: ReturnType<typeof setInterval> | null = null
 const socialQrOptions = {
   width: 230,
   margin: 2,
@@ -36,8 +46,38 @@ const socialQrOptions = {
   light: '#ffffff',
 }
 
+function hasQrOverlay(status: QrDialogStatus) {
+  return ['scanned', 'success', 'failed', 'expired'].includes(status)
+}
+
+function qrOverlayToneClass(status: QrDialogStatus) {
+  if (status === 'failed' || status === 'expired') {
+    return 'bg-[var(--danger)] shadow-xl shadow-rose-500/20'
+  }
+
+  if (status === 'success') {
+    return 'bg-[var(--success)] shadow-xl shadow-emerald-500/20'
+  }
+
+  return 'bg-[var(--accent)] shadow-xl shadow-blue-500/20'
+}
+
+function qrOverlayMark(status: QrDialogStatus) {
+  return status === 'failed' || status === 'expired' ? '!' : '✓'
+}
+
+function socialQrOverlayTitle(status: QrDialogStatus) {
+  const map: Partial<Record<QrDialogStatus, string>> = {
+    scanned: '已扫码',
+    success: '授权成功',
+    expired: '二维码过期',
+    failed: '授权失败',
+  }
+  return map[status] ?? ''
+}
+
 const oauthCtx = ref<AuthorizeContext | null>(null)
-const socialProviders = ref<Array<{ name: string; enabled: boolean }>>([])
+const socialProviders = ref<Array<{ name: string; type?: string; enabled: boolean }>>([])
 const requireEmailVerification = ref(true)
 
 const credentialsForm = reactive({ account: '', password: '' })
@@ -55,8 +95,17 @@ const showResetTab = computed(() => requireEmailVerification.value)
 const showAuthorizeTab = computed(() => authStore.isAuthenticated && hasOAuthContext.value)
 const isAuthorizeOnly = computed(() => authStore.isAuthenticated && hasOAuthContext.value && oauthCtx.value)
 
+const visibleEnabledProviders = computed(() =>
+  foldWechatProviders(socialProviders.value).filter(p => p.enabled)
+)
 const enabledProviders = computed(() =>
-  socialProviders.value.filter(p => p.enabled)
+  visibleEnabledProviders.value.filter(p => p.name !== 'wechat')
+)
+const activeWechatProvider = computed(() =>
+  visibleEnabledProviders.value.find(p => p.name === 'wechat') ?? null
+)
+const showWechatLogin = computed(() =>
+  Boolean(activeWechatProvider.value)
 )
 
 const titleMap: Record<AuthMode, string> = {
@@ -116,7 +165,8 @@ const providerSvg = (name: string): string => {
 
 const providerLabel = (name: string): string => {
   const labels: Record<string, string> = {
-    wechat: '微信', qq: 'QQ', github: 'GitHub', google: 'Google',
+    wechat: '微信', 'wechat-aggregated': '微信', 'wechat-mini': '微信',
+    qq: 'QQ', github: 'GitHub', google: 'Google',
     alipay: '支付宝', weibo: '微博', baidu: '百度',
     huawei: '华为', xiaomi: '小米', douyin: '抖音',
     bilibili: 'B站', dingtalk: '钉钉',
@@ -161,6 +211,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopSocialQrPolling()
+  stopWechatMiniPolling()
 })
 
 async function handleSendCode(type: 'login' | 'register' | 'reset-password') {
@@ -266,6 +317,23 @@ function resetSocialQr() {
   socialQrMessage.value = ''
 }
 
+function stopWechatMiniPolling() {
+  if (wechatMiniTimer) {
+    clearInterval(wechatMiniTimer)
+    wechatMiniTimer = null
+  }
+}
+
+function resetWechatMiniQr() {
+  stopWechatMiniPolling()
+  wechatMiniDisplayUrl.value = ''
+  wechatMiniQrContent.value = ''
+  wechatMiniState.value = ''
+  wechatMiniPath.value = ''
+  wechatMiniStatus.value = 'idle'
+  wechatMiniMessage.value = ''
+}
+
 async function handleSocialLogin(provider: string) {
   resetSocialQr()
   socialQrVisible.value = true
@@ -277,7 +345,9 @@ async function handleSocialLogin(provider: string) {
     const result = await authApi.createSocialLoginQr(provider, clientId.value, redirectUri.value)
     socialQrUrl.value = result.authorizeUrl
     socialQrState.value = result.state
-    socialQrMessage.value = '等待扫码/授权'
+    socialQrMessage.value = provider === 'wechat' || provider === 'wechat-aggregated'
+      ? '请使用微信扫码并完成授权'
+      : '等待扫码/授权'
     socialQrDisplayUrl.value = await createQrDisplayUrl(
       socialQrUrl.value,
       result.qrCodeUrl,
@@ -310,16 +380,23 @@ async function checkSocialLoginStatus() {
 
   try {
     const result = await authApi.getSocialLoginStatus(socialQrState.value)
-    if (result.status === 'completed' && result.auth) {
+    if (result.status === 'completed' && result.ticket) {
       stopSocialQrPolling()
       socialQrStatus.value = 'success'
-      socialQrMessage.value = '授权成功，正在进入系统...'
-      authStore.applySession(result.auth)
+      socialQrMessage.value = '扫码成功，正在进入系统...'
+      const auth = await authApi.redeemSocialLoginTicket(result.ticket)
+      authStore.applySession(auth)
       setTimeout(() => {
         socialQrVisible.value = false
-        void afterLoginSuccess(result.auth!.user.role)
+        void afterLoginSuccess(auth.user.role)
         resetSocialQr()
       }, 800)
+      return
+    }
+
+    if (result.status === 'scanned') {
+      socialQrStatus.value = 'scanned'
+      socialQrMessage.value = '已扫码，请在手机上完成授权'
       return
     }
 
@@ -339,6 +416,112 @@ async function checkSocialLoginStatus() {
     stopSocialQrPolling()
     socialQrStatus.value = 'failed'
     socialQrMessage.value = (e as { message?: string })?.message || '查询扫码状态失败'
+  }
+}
+
+async function handleWechatLogin() {
+  const provider = activeWechatProvider.value
+  if (!provider) return
+
+  const runtimeProvider = resolveRuntimeProviderName(provider)
+  if (runtimeProvider === 'wechat-mini') {
+    await handleWechatMiniLogin()
+    return
+  }
+
+  await handleSocialLogin(runtimeProvider)
+}
+
+async function handleWechatMiniLogin() {
+  resetWechatMiniQr()
+  wechatMiniVisible.value = true
+  wechatMiniStatus.value = 'pending'
+  wechatMiniMessage.value = '正在生成微信扫码会话...'
+
+  try {
+    const result = await authApi.createWechatMiniLoginQr(clientId.value, redirectUri.value)
+    wechatMiniState.value = result.state
+    wechatMiniQrContent.value = result.qrContent
+    wechatMiniPath.value = result.miniProgramPath
+    wechatMiniDisplayUrl.value = await createQrDisplayUrl(
+      result.qrContent,
+      result.qrCodeUrl,
+      socialQrOptions,
+    )
+    wechatMiniMessage.value = '请使用微信扫码，在小程序内确认登录'
+
+    wechatMiniTimer = setInterval(() => {
+      void checkWechatMiniLoginStatus()
+    }, 1600)
+    void checkWechatMiniLoginStatus()
+  } catch (e: unknown) {
+    wechatMiniStatus.value = 'failed'
+    wechatMiniMessage.value = (e as { message?: string })?.message || '生成微信扫码会话失败'
+  }
+}
+
+async function handleWechatMiniImageError() {
+  if (!wechatMiniQrContent.value || wechatMiniDisplayUrl.value.startsWith('data:image/')) return
+
+  try {
+    wechatMiniDisplayUrl.value = await createAuthorizeQrDataUrl(wechatMiniQrContent.value, socialQrOptions)
+  } catch {
+    wechatMiniStatus.value = 'failed'
+    wechatMiniMessage.value = '二维码图片加载失败，请重新生成'
+  }
+}
+
+async function completeWechatMiniLogin(ticket: string) {
+  try {
+    wechatMiniStatus.value = 'success'
+    wechatMiniMessage.value = '扫码成功，正在进入系统...'
+    const auth = await authApi.redeemSocialLoginTicket(ticket)
+    authStore.applySession(auth)
+    setTimeout(() => {
+      wechatMiniVisible.value = false
+      void afterLoginSuccess(auth.user.role)
+      resetWechatMiniQr()
+    }, 800)
+  } catch (e: unknown) {
+    wechatMiniStatus.value = 'failed'
+    wechatMiniMessage.value = (e as { message?: string })?.message || '微信扫码登录失败'
+  }
+}
+
+async function checkWechatMiniLoginStatus() {
+  if (!wechatMiniState.value) return
+
+  try {
+    const result = await authApi.getWechatMiniLoginStatus(wechatMiniState.value)
+
+    if (result.status === 'completed' && result.ticket) {
+      stopWechatMiniPolling()
+      await completeWechatMiniLogin(result.ticket)
+      return
+    }
+
+    if (result.status === 'scanned') {
+      wechatMiniStatus.value = 'pending'
+      wechatMiniMessage.value = '请在小程序内确认登录'
+      return
+    }
+
+    if (result.status === 'failed') {
+      stopWechatMiniPolling()
+      wechatMiniStatus.value = 'failed'
+      wechatMiniMessage.value = result.error || '微信认证失败'
+      return
+    }
+
+    if (result.status === 'expired') {
+      stopWechatMiniPolling()
+      wechatMiniStatus.value = 'expired'
+      wechatMiniMessage.value = '二维码已过期，请重新发起扫码登录'
+    }
+  } catch (e: unknown) {
+    stopWechatMiniPolling()
+    wechatMiniStatus.value = 'failed'
+    wechatMiniMessage.value = (e as { message?: string })?.message || '查询微信扫码状态失败'
   }
 }
 
@@ -603,6 +786,19 @@ function handleSecondaryAction() {
           </button>
         </div>
 
+        <template v-if="showWechatLogin && mode !== 'authorize' && mode !== 'restricted'">
+          <div class="lumina-divider">
+            <span></span>
+            <p>或使用微信</p>
+            <span></span>
+          </div>
+
+          <button class="wechat-entry" type="button" @click="handleWechatLogin">
+            <span class="wechat-entry__icon" v-html="providerSvg('wechat')"></span>
+            <span>微信扫码登录</span>
+          </button>
+        </template>
+
         <template v-if="enabledProviders.length > 0 && mode !== 'authorize' && mode !== 'restricted'">
           <div class="lumina-divider">
             <span></span>
@@ -653,30 +849,62 @@ function handleSecondaryAction() {
               <p>二维码生成中...</p>
             </div>
           </div>
-          <div
-            v-if="socialQrStatus === 'success' || socialQrStatus === 'failed' || socialQrStatus === 'expired'"
-            class="social-qr-overlay"
-          >
+          <div v-if="hasQrOverlay(socialQrStatus)" class="social-qr-overlay">
             <div class="space-y-3">
               <div
                 :class="[
                   'mx-auto grid h-16 w-16 place-items-center rounded-2xl text-2xl font-bold text-white',
-                  socialQrStatus === 'success' ? 'bg-[var(--success)] shadow-xl shadow-emerald-500/20' : 'bg-[var(--danger)] shadow-xl shadow-rose-500/20'
+                  qrOverlayToneClass(socialQrStatus)
                 ]"
               >
-                {{ socialQrStatus === 'success' ? '✓' : '!' }}
+                {{ qrOverlayMark(socialQrStatus) }}
               </div>
               <p class="text-sm font-semibold text-[var(--text-primary)]">
-                {{ socialQrStatus === 'success' ? '授权成功' : socialQrStatus === 'expired' ? '二维码过期' : '授权失败' }}
+                {{ socialQrOverlayTitle(socialQrStatus) }}
               </p>
             </div>
           </div>
         </div>
         <p class="text-sm font-semibold text-[var(--text-primary)]">{{ socialQrMessage }}</p>
-        <p v-if="socialQrStatus === 'pending'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，本页面会自动监听结果。</p>
+        <p v-if="socialQrStatus === 'pending' || socialQrStatus === 'scanned'" class="text-xs text-[var(--text-muted)]">请扫码并在手机完成授权，本页面会自动监听结果。</p>
         <div v-if="socialQrStatus === 'failed' || socialQrStatus === 'expired'" class="action-row justify-center">
           <NButton class="lumina-outline-btn" @click="socialQrVisible = false; resetSocialQr()">关闭</NButton>
           <NButton type="primary" class="lumina-primary-btn" @click="handleSocialLogin(socialQrProvider)">重新生成</NButton>
+        </div>
+      </div>
+    </NModal>
+
+    <NModal
+      v-model:show="wechatMiniVisible"
+      preset="card"
+      title="微信扫码登录"
+      style="width: 430px"
+      @close="resetWechatMiniQr"
+    >
+      <div class="space-y-4 pt-2 text-center">
+        <div class="social-qr-frame">
+          <img
+            v-if="wechatMiniDisplayUrl"
+            :src="wechatMiniDisplayUrl"
+            alt="微信登录二维码"
+            class="h-[230px] w-[230px] rounded-2xl object-contain"
+            @error="handleWechatMiniImageError"
+          />
+          <div v-else class="social-qr-placeholder">
+            <div class="space-y-2">
+              <div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent"></div>
+              <p>二维码生成中...</p>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-sm font-semibold text-[var(--text-primary)]">{{ wechatMiniMessage }}</p>
+        <p v-if="wechatMiniStatus === 'pending'" class="text-xs text-[var(--text-muted)]">
+          本页面会自动监听确认结果，请按微信内提示完成确认。
+        </p>
+        <div v-if="wechatMiniStatus === 'failed' || wechatMiniStatus === 'expired'" class="action-row justify-center">
+          <NButton class="lumina-outline-btn" @click="wechatMiniVisible = false; resetWechatMiniQr()">关闭</NButton>
+          <NButton type="primary" class="lumina-primary-btn" @click="handleWechatMiniLogin">重新生成</NButton>
         </div>
       </div>
     </NModal>
@@ -924,6 +1152,7 @@ function handleSecondaryAction() {
 .lumina-submit:active,
 .lumina-secondary:active,
 .lumina-mode-grid button:active,
+.wechat-entry:active,
 .social-icon-btn:active {
   transform: scale(0.95);
 }
@@ -1293,6 +1522,47 @@ function handleSecondaryAction() {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
   gap: 12px;
+}
+
+.wechat-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.08);
+  color: #15803d;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  transition:
+    transform var(--duration-fast) var(--ease-lumina),
+    background-color var(--duration-fast) var(--ease-lumina),
+    border-color var(--duration-fast) var(--ease-lumina);
+}
+
+.wechat-entry:hover {
+  border-color: rgba(34, 197, 94, 0.42);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+:global(:root[data-app-theme='dark']) .wechat-entry {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.10);
+}
+
+.wechat-entry__icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+}
+
+.wechat-entry__icon :deep(svg) {
+  width: 100%;
+  height: 100%;
 }
 
 .social-icon-btn {

@@ -44,6 +44,17 @@ export class ListAuditLogsDto {
   @Min(1)
   @Max(100)
   limit?: number = 30;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
 }
 
 export class AuditSummaryQueryDto {
@@ -231,23 +242,36 @@ export class AuditService {
   }
 
   async listLogs(dto: ListAuditLogsDto) {
-    const logs = await this.prismaService.auditLog.findMany({
-      where: this.buildWhere(dto),
-      include: {
-        actor: {
-          select: {
-            username: true,
-            role: true,
+    const page = Math.max(1, dto.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, dto.pageSize ?? dto.limit ?? 30));
+    const where = this.buildWhere(dto);
+
+    const [logs, total] = await this.prismaService.$transaction([
+      this.prismaService.auditLog.findMany({
+        where,
+        include: {
+          actor: {
+            select: {
+              username: true,
+              role: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: dto.limit ?? 30,
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prismaService.auditLog.count({ where }),
+    ]);
 
-    return logs.map((log) => this.toApiAuditLog(log));
+    return {
+      items: logs.map((log) => this.toApiAuditLog(log)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async getSummary(dto: AuditSummaryQueryDto) {

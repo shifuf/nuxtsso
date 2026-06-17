@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { NButton, NInput, NSelect } from 'naive-ui'
+import { onMounted, ref, watch } from 'vue'
+import { NButton, NInput, NPagination, NSelect } from 'naive-ui'
 import { MessagePlugin, DialogPlugin } from '../../utils/ui'
 import { adminApi } from '../../api/admin'
 import type { AuditLogItem, AuditSummary, AuditCategory } from '../../types/api'
@@ -11,7 +11,9 @@ import StatusTag from '../../components/StatusTag.vue'
 
 const loading = ref(false)
 const logs = ref<AuditLogItem[]>([])
+const logTotal = ref(0)
 const summary = ref<AuditSummary | null>(null)
+const logPage = ref(1)
 
 const filters = ref({
   category: '' as AuditCategory | '',
@@ -54,15 +56,31 @@ onMounted(async () => {
   await Promise.all([loadLogs(), loadSummary()])
 })
 
+watch(logPage, () => {
+  void loadLogs()
+})
+
+watch(() => filters.value.limit, () => {
+  if (logPage.value !== 1) {
+    logPage.value = 1
+    return
+  }
+
+  void loadLogs()
+})
+
 async function loadLogs() {
   loading.value = true
   try {
-    const query: { q?: string; action?: string; category?: AuditCategory; limit?: number } = {}
+    const query: { q?: string; action?: string; category?: AuditCategory; page?: number; pageSize?: number } = {}
     if (filters.value.q) query.q = filters.value.q
     if (filters.value.action) query.action = filters.value.action
     if (filters.value.category) query.category = filters.value.category
-    query.limit = filters.value.limit
-    logs.value = await adminApi.listAuditLogs(query)
+    query.page = logPage.value
+    query.pageSize = filters.value.limit
+    const result = await adminApi.listAuditLogs(query)
+    logs.value = result.items
+    logTotal.value = result.total
   } catch { /* silent */ }
   finally { loading.value = false }
 }
@@ -74,6 +92,12 @@ async function loadSummary() {
 }
 
 async function search() {
+  if (logPage.value !== 1) {
+    logPage.value = 1
+    await loadSummary()
+    return
+  }
+
   await Promise.all([loadLogs(), loadSummary()])
 }
 
@@ -220,6 +244,19 @@ function statusTagForCategory(category: AuditCategory): 'success' | 'info' | 'wa
               </tbody>
             </table>
           </div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-3 text-xs text-[var(--text-muted)] sm:flex-row sm:items-center sm:justify-between">
+          <p>显示 {{ logTotal === 0 ? 0 : (logPage - 1) * filters.limit + 1 }}-{{ Math.min(logPage * filters.limit, logTotal) }} / {{ logTotal }} 条日志</p>
+          <NPagination
+            v-if="logTotal > filters.limit"
+            v-model:page="logPage"
+            v-model:page-size="filters.limit"
+            :item-count="logTotal"
+            :page-sizes="[20, 30, 50, 100]"
+            size="small"
+            show-size-picker
+          />
         </div>
 
         <!-- Summary -->

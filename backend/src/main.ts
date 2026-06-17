@@ -8,8 +8,10 @@ import express, {
   type Response,
 } from 'express';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { AppModule } from './app.module';
+
+const PUBLIC_UPLOAD_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 
 function shouldServeFrontend(req: Request) {
   const excludedPrefixes = ['/api', '/oauth2', '/.well-known', '/uploads'];
@@ -44,12 +46,45 @@ async function bootstrap() {
   const frontendDistDir = resolve(
     configService.get<string>('FRONTEND_DIST_DIR') ?? join(process.cwd(), 'public'),
   );
+  const allowedOrigins = new Set(
+    [
+      configService.get<string>('FRONTEND_URL'),
+      configService.get<string>('OIDC_ISSUER'),
+      ...(configService.get<string>('CORS_ORIGINS') ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ]
+      .filter((origin): origin is string => Boolean(origin))
+      .map((origin) => origin.replace(/\/+$/, '')),
+  );
 
-  app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
+  app.use(
+    '/uploads',
+    (req: Request, res: Response, next: NextFunction) => {
+      if (!PUBLIC_UPLOAD_EXTENSIONS.has(extname(req.path).toLowerCase())) {
+        res.status(404).end();
+        return;
+      }
+      next();
+    },
+    express.static(join(process.cwd(), 'uploads'), {
+      setHeaders(res) {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+      },
+    }),
+  );
 
   app.enableCors({
-    origin: true,
-    credentials: false,
+    origin(origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) {
+      if (!origin || allowedOrigins.has(origin.replace(/\/+$/, ''))) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error('CORS origin is not allowed'));
+    },
+    credentials: true,
   });
   app.useGlobalPipes(
     new ValidationPipe({
